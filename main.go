@@ -555,6 +555,53 @@ func coliseumRank(wins int) (string, int, int) {
 	}
 }
 
+func handleTeam(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	uid := iUser(i).ID
+	opts := i.ApplicationCommandData().Options
+	if len(opts) == 0 || opts[0].Name == "ver" { handleTeamView(s, i); return }
+	store.mu.Lock()
+	p, ok := store.Players[uid]
+	if !ok { store.mu.Unlock(); respond(s, i, "Você ainda não começou. Use /iniciar primeiro."); return }
+	if sub := opts[0]; sub.Name == "limpar" {
+		p.Team = nil; store.Players[uid] = p; _ = saveStoreLocked(); store.mu.Unlock()
+		respond(s, i, "🧹 Equipe limpa! Use /equipe adicionar para montar sua equipe."); return
+	}
+	sub := opts[0]
+	if len(sub.Options) == 0 { store.mu.Unlock(); respond(s, i, "Informe o número do Pokémon."); return }
+	idx := int(sub.Options[0].IntValue()) - 1
+	if idx < 0 || idx >= len(p.Pokemon) { store.mu.Unlock(); respond(s, i, fmt.Sprintf("❌ Pokémon inválido. Use /pokemon para ver 1 a %d.", len(p.Pokemon))); return }
+	pos := -1
+	for n, v := range p.Team { if v == idx { pos = n; break } }
+	if sub.Name == "adicionar" {
+		if pos >= 0 { store.mu.Unlock(); respond(s, i, "⚠️ Esse Pokémon já está na sua equipe."); return }
+		if len(p.Team) >= 6 { store.mu.Unlock(); respond(s, i, "❌ Sua equipe já tem 6 Pokémon."); return }
+		p.Team = append(p.Team, idx); name := p.Pokemon[idx].Name; count := len(p.Team)
+		store.Players[uid] = p; _ = saveStoreLocked(); store.mu.Unlock()
+		respond(s, i, fmt.Sprintf("➕ **%s** entrou na equipe! (%d/6)", name, count)); return
+	}
+	if sub.Name == "remover" {
+		if pos < 0 { store.mu.Unlock(); respond(s, i, "⚠️ Esse Pokémon não está na sua equipe."); return }
+		p.Team = append(p.Team[:pos], p.Team[pos+1:]...)
+		name := p.Pokemon[idx].Name; count := len(p.Team)
+		store.Players[uid] = p; _ = saveStoreLocked(); store.mu.Unlock()
+		respond(s, i, fmt.Sprintf("➖ **%s** saiu da equipe. (%d/6)", name, count)); return
+	}
+	store.mu.Unlock(); respond(s, i, "Use /equipe ver, /equipe adicionar, /equipe remover ou /equipe limpar.")
+}
+
+func handleTeamView(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	p, ok := getPlayer(iUser(i).ID)
+	if !ok { respond(s, i, "Você ainda não começou. Use /iniciar primeiro."); return }
+	if len(p.Team) == 0 { respond(s, i, "👥 Sua equipe está vazia. Use /equipe adicionar numero:1."); return }
+	lines := []string{}
+	for n, idx := range p.Team {
+		if idx < 0 || idx >= len(p.Pokemon) { continue }
+		pk := p.Pokemon[idx]; if pk.Type == "" { pk.Type = pokemonType(pk.ID) }
+		hp := pk.HP; if hp <= 0 || hp > battleHP(pk) { hp = battleHP(pk) }
+		lines = append(lines, fmt.Sprintf("**%d.** %s — %s — Lv. %d — ❤️ %d/%d", n+1, pk.Name, pk.Type, pk.Level, hp, battleHP(pk)))
+	}
+	respondEmbed(s, i, &discordgo.MessageEmbed{Title: "👥 Sua equipe", Description: strings.Join(lines, "\n") + fmt.Sprintf("\n\n**%d/6 Pokémon**", len(lines)), Color: 0x57F287})
+}
 func handleHeal(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := iUser(i).ID
 	const cost = 20
@@ -675,6 +722,10 @@ func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	if len(player.Team) == 0 { store.mu.Unlock(); respond(s, i, "❌ Sua equipe está vazia. Use /equipe adicionar primeiro."); return }
+	inTeam := false
+	for _, teamIndex := range player.Team { if teamIndex == index { inTeam = true; break } }
+	if !inTeam { store.mu.Unlock(); respond(s, i, "❌ Esse Pokémon não está na sua equipe. Use /equipe ver ou /equipe adicionar."); return }
 	chosen := player.Pokemon[index]
 	chosen.Type = pokemonType(chosen.ID)
 	maxHP := battleHP(chosen)
