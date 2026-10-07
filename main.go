@@ -120,9 +120,27 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "catch", Description: "Tente capturar o Pokémon encontrado"},
 		{Name: "flee", Description: "Fuja do encontro atual"},
 	}
-	guildID := os.Getenv("DISCORD_GUILD_ID")
-	_, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, guildID, commands)
-	return err
+	guildID := strings.TrimSpace(os.Getenv("DISCORD_GUILD_ID"))
+	if guildID == "" {
+		return fmt.Errorf("DISCORD_GUILD_ID is not set")
+	}
+
+	log.Printf("Discord bot ID: %s", s.State.User.ID)
+	log.Printf("Configured guild ID: %s", guildID)
+
+	guild, err := s.Guild(guildID)
+	if err != nil {
+		return fmt.Errorf("cannot access configured guild %s: %w; check that this is the correct Server ID and that PokeDisc is installed there", guildID, err)
+	}
+	log.Printf("Guild access OK: %s (%s)", guild.Name, guild.ID)
+
+	registered, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, guildID, commands)
+	if err != nil {
+		return fmt.Errorf("register slash commands in guild %s: %w", guildID, err)
+	}
+
+	log.Printf("Registered %d slash commands in %s", len(registered), guild.Name)
+	return nil
 }
 
 func onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
