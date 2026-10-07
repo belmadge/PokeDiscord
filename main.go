@@ -60,7 +60,6 @@ var pokemonPool = []Pokemon{
 	{ID: 52, Name: "Meowth", Level: 1, XPToNext: 14},
 }
 
-var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 func main() {
 	if err := loadStore(); err != nil {
@@ -232,7 +231,7 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	pk := pokemonPool[rng.Intn(len(pokemonPool))]
+	pk := pokemonPool[rand.Intn(len(pokemonPool))]
 	pk.Level = 1 + rng.Intn(5)
 	pk.XPToNext = 10 + pk.Level*4
 	pk.Shiny = rng.Intn(100) == 0
@@ -385,8 +384,8 @@ func loadStore() error {
 }
 
 func saveStore() error {
-	store.mu.RLock()
-	defer store.mu.RUnlock()
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	return saveStoreLocked()
 }
 
