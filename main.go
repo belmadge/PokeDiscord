@@ -28,12 +28,23 @@ type Pokemon struct {
 }
 
 type Player struct {
-	DiscordID string    `json:"discord_id"`
-	Username  string    `json:"username"`
-	Coins     int       `json:"coins"`
-	Level     int       `json:"level"`
-	XP        int       `json:"xp"`
-	Pokemon   []Pokemon `json:"pokemon"`
+	DiscordID    string    `json:"discord_id"`
+	Username     string    `json:"username"`
+	Coins        int       `json:"coins"`
+	Level        int       `json:"level"`
+	XP           int       `json:"xp"`
+	Pokemon      []Pokemon `json:"pokemon"`
+	CurrentRoute string    `json:"current_route"`
+}
+
+type Route struct {
+	ID          string
+	Name        string
+	Description string
+	UnlockLevel int
+	MinLevel    int
+	MaxLevel    int
+	PokemonIDs  []int
 }
 
 type Encounter struct {
@@ -54,11 +65,30 @@ var pokemonPool = []Pokemon{
 	{ID: 1, Name: "Bulbasaur", Level: 1, XPToNext: 14},
 	{ID: 4, Name: "Charmander", Level: 1, XPToNext: 14},
 	{ID: 7, Name: "Squirtle", Level: 1, XPToNext: 14},
+	{ID: 10, Name: "Caterpie", Level: 1, XPToNext: 14},
+	{ID: 13, Name: "Weedle", Level: 1, XPToNext: 14},
+	{ID: 16, Name: "Pidgey", Level: 1, XPToNext: 14},
 	{ID: 19, Name: "Rattata", Level: 1, XPToNext: 14},
 	{ID: 21, Name: "Spearow", Level: 1, XPToNext: 14},
 	{ID: 25, Name: "Pikachu", Level: 1, XPToNext: 14},
 	{ID: 43, Name: "Oddish", Level: 1, XPToNext: 14},
 	{ID: 52, Name: "Meowth", Level: 1, XPToNext: 14},
+	{ID: 41, Name: "Zubat", Level: 1, XPToNext: 14},
+	{ID: 74, Name: "Geodude", Level: 1, XPToNext: 14},
+	{ID: 35, Name: "Clefairy", Level: 1, XPToNext: 14},
+	{ID: 29, Name: "Nidoran♀", Level: 1, XPToNext: 14},
+	{ID: 32, Name: "Nidoran♂", Level: 1, XPToNext: 14},
+	{ID: 102, Name: "Exeggcute", Level: 1, XPToNext: 14},
+	{ID: 128, Name: "Tauros", Level: 1, XPToNext: 14},
+	{ID: 123, Name: "Scyther", Level: 1, XPToNext: 14},
+}
+
+var routes = []Route{
+	{ID: "route1", Name: "Route 1", Description: "Uma rota tranquila para começar sua jornada.", UnlockLevel: 1, MinLevel: 1, MaxLevel: 5, PokemonIDs: []int{16, 19, 21, 43, 25}},
+	{ID: "route2", Name: "Route 2", Description: "Uma rota com Pokémon um pouco mais fortes.", UnlockLevel: 3, MinLevel: 3, MaxLevel: 7, PokemonIDs: []int{16, 19, 21, 25, 52}},
+	{ID: "viridian", Name: "Viridian Forest", Description: "Uma floresta cheia de Pokémon do tipo Inseto.", UnlockLevel: 5, MinLevel: 5, MaxLevel: 9, PokemonIDs: []int{10, 13, 25, 1}},
+	{ID: "moon", Name: "Mt. Moon", Description: "Uma caverna misteriosa com Pokémon raros.", UnlockLevel: 8, MinLevel: 8, MaxLevel: 12, PokemonIDs: []int{41, 74, 35, 52}},
+	{ID: "safari", Name: "Safari Zone", Description: "Uma área especial com encontros muito raros.", UnlockLevel: 12, MinLevel: 12, MaxLevel: 18, PokemonIDs: []int{29, 32, 102, 128, 123}},
 }
 
 
@@ -117,6 +147,7 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "perfil", Description: "Veja seu perfil de treinador"},
 		{Name: "pokemon", Description: "Veja seus Pokémon"},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
+		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
 		{Name: "fugir", Description: "Fuja do encontro atual"},
 	}
@@ -162,6 +193,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handlePokemon(s, i)
 	case "procurar":
 		handleHunt(s, i)
+	case "rotas":
+		handleRoutes(s, i)
 	case "capturar":
 		handleCatch(s, i)
 	case "fugir":
@@ -185,6 +218,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p := Player{
 		DiscordID: user.ID, Username: user.Username, Coins: 100, Level: 1,
 		Pokemon: []Pokemon{newPokemonByName(starter)},
+		CurrentRoute: "route1",
 	}
 	store.Players[user.ID] = p
 	store.mu.Unlock()
@@ -242,51 +276,61 @@ func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := iUser(i).ID
 	store.mu.Lock()
-	if _, ok := store.Players[userID]; !ok {
+	player, ok := store.Players[userID]
+	if !ok {
 		store.mu.Unlock()
-		respond(s, i, "Você ainda não começou. Use `/iniciar` primeiro.")
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
 		return
 	}
 	if e, ok := store.Encounters[userID]; ok && time.Now().Before(e.ExpiresAt) {
 		store.mu.Unlock()
-		respond(s, i, "Você já está em um encontro! Use `/capturar` ou `/fugir`.")
+		respond(s, i, "Você já está em um encontro! Use /capturar ou /fugir.")
 		return
 	}
 
-	pk := pokemonPool[rand.Intn(len(pokemonPool))]
-	pk.Level = 1 + rand.Intn(5)
-	pk.XPToNext = 10 + pk.Level*4
-	pk.Shiny = rand.Intn(100) == 0
+	route := getRoute(player.CurrentRoute)
+	if route == nil {
+		player.CurrentRoute = "route1"
+		route = getRoute("route1")
+		store.Players[userID] = player
+	}
+	if player.Level < route.UnlockLevel {
+		store.mu.Unlock()
+		respond(s, i, fmt.Sprintf("🔒 **%s** desbloqueia no Level %d.", route.Name, route.UnlockLevel))
+		return
+	}
+
+	pk := randomPokemonForRoute(*route)
 	store.Encounters[userID] = Encounter{OwnerID: userID, Pokemon: pk, ExpiresAt: time.Now().Add(60 * time.Second)}
 	store.mu.Unlock()
 
 	respondEmbedWithComponents(s, i, &discordgo.MessageEmbed{
 		Title: "🌿 Pokémon selvagem apareceu!",
-		Description: fmt.Sprintf("Um **%s** selvagem apareceu na **Route 1**!", pk.Name),
+		Description: fmt.Sprintf("Um **%s** selvagem apareceu na **%s**!", pk.Name, route.Name),
 		Color: 0xFEE75C,
 		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: spriteURL(pk.ID)},
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "Level", Value: strconv.Itoa(pk.Level), Inline: true},
 			{Name: "Raridade", Value: rarity(pk), Inline: true},
+			{Name: "🗺️ Rota", Value: route.Name, Inline: true},
 			{Name: "⏱️ Encontro", Value: "60 segundos", Inline: true},
 		},
 	}, []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.Button{CustomID: "catch:" + userID, Label: "🎯 Capturar", Style: discordgo.PrimaryButton},
-		discordgo.Button{CustomID: "flee:" + userID, Label: "🏃 Fugir", Style: discordgo.SecondaryButton},
+		discordgo.Button{CustomID: "capturar:" + userID, Label: "🎯 Capturar", Style: discordgo.PrimaryButton},
+		discordgo.Button{CustomID: "fugir:" + userID, Label: "🏃 Fugir", Style: discordgo.SecondaryButton},
 	}}})
 }
-
 func handleCatch(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if catchPokemon(iUser(i).ID) {
-		respond(s, i, "🎉 **Capturado!** O Pokémon entrou para sua coleção. Use `/pokemon` para vê-lo.")
+	pk, ok := catchPokemon(iUser(i).ID)
+	if ok {
+		respond(s, i, fmt.Sprintf("🎉 **%s capturado!** Você ganhou **+10 XP** e **+5 🪙 Coins**. Use /pokemon para vê-lo.", pk.Name))
 		return
 	}
-	respond(s, i, "❌ Não há um Pokémon válido para capturar agora, ou a captura falhou. Use `/procurar` para tentar novamente.")
+	respond(s, i, "❌ Não há um Pokémon válido para capturar agora, ou a captura falhou. Use /procurar para tentar novamente.")
 }
-
 func handleFlee(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if flee(iUser(i).ID) {
-		respond(s, i, "🏃 Você fugiu do encontro. Use `/hunt` para procurar outro Pokémon.")
+		respond(s, i, "🏃 Você fugiu do encontro. Use `/procurar` para procurar outro Pokémon.")
 		return
 	}
 	respond(s, i, "Não há encontro ativo.")
@@ -294,38 +338,48 @@ func handleFlee(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	parts := strings.Split(i.MessageComponentData().CustomID, ":")
-	if len(parts) != 2 || parts[1] != iUser(i).ID {
-		respond(s, i, "Esse encontro pertence a outro treinador.")
+	userID := iUser(i).ID
+
+	if len(parts) == 3 && parts[2] == userID && parts[0] == "rota" {
+		handleRouteSelection(s, i, parts[1])
 		return
 	}
+
+	if len(parts) != 2 || parts[1] != userID {
+		respond(s, i, "Esse botão pertence a outro treinador.")
+		return
+	}
+
 	switch parts[0] {
 	case "capturar":
-		if catchPokemon(iUser(i).ID) {
-			respond(s, i, "🎉 **Capturado!** O Pokémon entrou para sua coleção.")
+		deferComponent(s, i)
+		pk, ok := catchPokemon(userID)
+		if ok {
+			editComponent(s, i, fmt.Sprintf("🎉 **%s capturado!** Você ganhou **+10 XP** e **+5 🪙 Coins**.", pk.Name))
 		} else {
-			respond(s, i, "❌ O encontro expirou, já foi resolvido ou a captura falhou.")
+			editComponent(s, i, "❌ **A captura falhou!** O encontro terminou e o Pokémon fugiu.")
 		}
 	case "fugir":
-		if flee(iUser(i).ID) {
-			respond(s, i, "🏃 Você fugiu do encontro.")
+		deferComponent(s, i)
+		if flee(userID) {
+			editComponent(s, i, "🏃 **Você fugiu do encontro.** Use /procurar para tentar novamente.")
 		} else {
-			respond(s, i, "O encontro já terminou.")
+			editComponent(s, i, "O encontro já terminou.")
 		}
 	}
 }
-
-func catchPokemon(userID string) bool {
+func catchPokemon(userID string) (Pokemon, bool) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
 	e, ok := store.Encounters[userID]
 	if !ok || time.Now().After(e.ExpiresAt) {
 		delete(store.Encounters, userID)
-		return false
+		return Pokemon{}, false
 	}
 	if rand.Intn(100) >= 70 {
 		delete(store.Encounters, userID)
-		return false
+		return Pokemon{}, false
 	}
 
 	p := store.Players[userID]
@@ -339,7 +393,7 @@ func catchPokemon(userID string) bool {
 	store.Players[userID] = p
 	delete(store.Encounters, userID)
 	_ = saveStoreLocked()
-	return true
+	return e.Pokemon, true
 }
 
 func flee(userID string) bool {
@@ -352,6 +406,78 @@ func flee(userID string) bool {
 	return true
 }
 
+func handleRoutes(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := iUser(i).ID
+	player, ok := getPlayer(userID)
+	if !ok {
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+
+	fields := make([]*discordgo.MessageEmbedField, 0, len(routes))
+	buttons := make([]discordgo.MessageComponent, 0, 5)
+	for _, route := range routes {
+		if player.Level >= route.UnlockLevel {
+			status := "✅ Desbloqueada"
+			if player.CurrentRoute == route.ID { status = "📍 **Atual**" }
+			fields = append(fields, &discordgo.MessageEmbedField{Name: route.Name, Value: fmt.Sprintf("%s\nNíveis: %d–%d\n%s", status, route.MinLevel, route.MaxLevel, route.Description)})
+			buttons = append(buttons, discordgo.Button{CustomID: "rota:" + route.ID + ":" + userID, Label: route.Name, Style: discordgo.PrimaryButton})
+		} else {
+			fields = append(fields, &discordgo.MessageEmbedField{Name: route.Name, Value: fmt.Sprintf("🔒 Desbloqueia no Level %d\nNíveis: %d–%d", route.UnlockLevel, route.MinLevel, route.MaxLevel)})
+		}
+	}
+	respondEmbedWithComponents(s, i, &discordgo.MessageEmbed{Title: "🗺️ Rotas", Description: fmt.Sprintf("Você está em **%s**. Escolha onde quer procurar Pokémon.", routeName(player.CurrentRoute)), Color: 0x57F287, Fields: fields}, []discordgo.MessageComponent{discordgo.ActionsRow{Components: buttons}})
+}
+
+func handleRouteSelection(s *discordgo.Session, i *discordgo.InteractionCreate, routeID string) {
+	deferComponent(s, i)
+	userID := iUser(i).ID
+	player, ok := getPlayer(userID)
+	if !ok { editComponent(s, i, "Você ainda não começou. Use /iniciar primeiro."); return }
+	route := getRoute(routeID)
+	if route == nil { editComponent(s, i, "Essa rota não existe."); return }
+	if player.Level < route.UnlockLevel { editComponent(s, i, fmt.Sprintf("🔒 **%s** desbloqueia no Level %d.", route.Name, route.UnlockLevel)); return }
+	store.mu.Lock()
+	player.CurrentRoute = route.ID
+	store.Players[userID] = player
+	store.mu.Unlock()
+	if err := saveStore(); err != nil { log.Printf("save route selection: %v", err) }
+	editComponent(s, i, fmt.Sprintf("📍 **Rota alterada!** Agora você está em **%s**. Use /procurar para encontrar Pokémon nessa rota.", route.Name))
+}
+
+func getRoute(id string) *Route {
+	for idx := range routes { if routes[idx].ID == id { return &routes[idx] } }
+	return nil
+}
+
+func routeName(id string) string {
+	if route := getRoute(id); route != nil { return route.Name }
+	return "Route 1"
+}
+
+func randomPokemonForRoute(route Route) Pokemon {
+	pokemonID := route.PokemonIDs[rand.Intn(len(route.PokemonIDs))]
+	pk := pokemonByID(pokemonID)
+	pk.Level = route.MinLevel + rand.Intn(route.MaxLevel-route.MinLevel+1)
+	pk.XPToNext = 10 + pk.Level*4
+	pk.Shiny = rand.Intn(100) == 0
+	return pk
+}
+
+func pokemonByID(id int) Pokemon {
+	for _, pk := range pokemonPool { if pk.ID == id { return pk } }
+	return pokemonPool[0]
+}
+
+func deferComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredMessageUpdate})
+}
+
+func editComponent(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	emptyComponents := []discordgo.MessageComponent{}
+	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: &emptyComponents})
+	if err != nil { log.Printf("edit component response: %v", err) }
+}
 func newPokemonByName(name string) Pokemon {
 	for _, pk := range pokemonPool {
 		if strings.EqualFold(pk.Name, name) {
