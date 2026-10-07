@@ -115,6 +115,11 @@ var pokemonPool = []Pokemon{
 	{ID: 102, Name: "Exeggcute", Level: 1, XPToNext: 14},
 	{ID: 128, Name: "Tauros", Level: 1, XPToNext: 14},
 	{ID: 123, Name: "Scyther", Level: 1, XPToNext: 14},
+	{ID: 144, Name: "Articuno", Level: 30, XPToNext: 14},
+	{ID: 145, Name: "Zapdos", Level: 30, XPToNext: 14},
+	{ID: 146, Name: "Moltres", Level: 30, XPToNext: 14},
+	{ID: 150, Name: "Mewtwo", Level: 50, XPToNext: 14},
+	{ID: 151, Name: "Mew", Level: 40, XPToNext: 14},
 }
 
 
@@ -222,6 +227,7 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "ginasios", Description: "Veja os ginásios e suas insígnias"},
 		{Name: "ginasio", Description: "Desafie um líder de ginásio", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do ginásio", Required: true}}},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
+		{Name: "lendarios", Description: "Veja os Pokémon lendários e como encontrá-los"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
 		{Name: "fugir", Description: "Fuja do encontro atual"},
@@ -294,6 +300,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleGymBattle(s, i)
 	case "procurar":
 		handleHunt(s, i)
+	case "lendarios":
+		handleLegendaries(s, i)
 	case "rotas":
 		handleRoutes(s, i)
 	case "capturar":
@@ -1043,6 +1051,8 @@ func pokemonType(id int) string {
 		89: "Veneno", 95: "Pedra/Terra", 100: "Elétrico",
 		109: "Veneno", 110: "Veneno", 111: "Terra/Pedra",
 		112: "Terra/Pedra", 114: "Planta", 120: "Água", 121: "Água", 122: "Psíquico/Fada",
+		144: "Gelo/Voador", 145: "Elétrico/Voador", 146: "Fogo/Voador",
+		150: "Psíquico", 151: "Psíquico",
 		74: "Pedra/Terra", 75: "Pedra/Terra",
 		102: "Planta/Psíquico", 123: "Inseto/Voador", 128: "Normal",
 	}
@@ -1184,7 +1194,10 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	pk := randomPokemonForRoute(*route, player.Pokemon)
+	pk, special := legendaryEncounter(player)
+	if !special {
+		pk = randomPokemonForRoute(*route, player.Pokemon)
+	}
 	lureText := "Nenhuma"
 	if !player.ActiveLureUntil.IsZero() && time.Now().Before(player.ActiveLureUntil) {
 		lureText = fmt.Sprintf("%s (%d min restantes)", player.ActiveLureName, int(time.Until(player.ActiveLureUntil).Minutes())+1)
@@ -1192,10 +1205,18 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	store.Encounters[userID] = Encounter{OwnerID: userID, Pokemon: pk, ExpiresAt: time.Now().Add(60 * time.Second)}
 	store.mu.Unlock()
 
+	title := "🌿 Pokémon selvagem apareceu!"
+	description := fmt.Sprintf("Um **%s** selvagem apareceu na **%s**!", pk.Name, route.Name)
+	color := 0xFEE75C
+	if special {
+		title = "🌟 ENCONTRO LENDÁRIO!"
+		description = fmt.Sprintf("Uma energia lendária tomou conta da **%s**! **%s** apareceu!", route.Name, pk.Name)
+		color = 0x9B59B6
+	}
 	respondEmbedWithComponents(s, i, &discordgo.MessageEmbed{
-		Title: "🌿 Pokémon selvagem apareceu!",
-		Description: fmt.Sprintf("Um **%s** selvagem apareceu na **%s**!", pk.Name, route.Name),
-		Color: 0xFEE75C,
+		Title: title,
+		Description: description,
+		Color: color,
 		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: spriteURL(pk.ID)},
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "Level", Value: strconv.Itoa(pk.Level), Inline: true},
@@ -1209,6 +1230,34 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		discordgo.Button{CustomID: "fugir:" + userID, Label: "🏃 Fugir", Style: discordgo.SecondaryButton},
 	}}})
 }
+func handleLegendaries(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	p, ok := getPlayer(iUser(i).ID)
+	if !ok {
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+
+	status := func(required int) string {
+		if len(p.Badges) >= required {
+			return "🟢 Disponível para aparecer"
+		}
+		return fmt.Sprintf("🔒 Requer %d insígnias", required)
+	}
+
+	respondEmbed(s, i, &discordgo.MessageEmbed{
+		Title: "🌟 Caçada Lendária",
+		Description: "Pokémon lendários não aparecem no encontro comum. Quando você cumprir os requisitos, eles podem surgir aleatoriamente durante /procurar.",
+		Color: 0x9B59B6,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "❄️ Articuno", Value: fmt.Sprintf("%s\nLv. 30 • Chance de encontro: 0,5%% • Captura: 8%%", status(3))},
+			{Name: "⚡ Zapdos", Value: fmt.Sprintf("%s\nLv. 30 • Chance de encontro: 0,5%% • Captura: 8%%", status(4))},
+			{Name: "🔥 Moltres", Value: fmt.Sprintf("%s\nLv. 30 • Chance de encontro: 0,5%% • Captura: 8%%", status(7))},
+			{Name: "🧬 Mewtwo", Value: fmt.Sprintf("%s\nLv. 50 • Chance de encontro: 0,2%% • Captura: 8%%", status(8))},
+			{Name: "✨ Mew", Value: fmt.Sprintf("%s\nLv. 40 • Chance de encontro: 0,2%% • Captura: 8%%", status(8))},
+		},
+	})
+}
+
 func handleCatch(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	pk, ok := catchPokemon(iUser(i).ID)
 	if ok {
@@ -1558,6 +1607,9 @@ func rarity(pk Pokemon) string {
 }
 
 func rarityByID(id int) string {
+	if isLegendary(id) {
+		return "Lendário"
+	}
 	switch id {
 	case 128, 123:
 		return "Muito raro"
@@ -1568,6 +1620,64 @@ func rarityByID(id int) string {
 	default:
 		return "Comum"
 	}
+}
+
+func isLegendary(id int) bool {
+	switch id {
+	case 144, 145, 146, 150, 151:
+		return true
+	default:
+		return false
+	}
+}
+
+func legendaryEncounter(player Player) (Pokemon, bool) {
+	badges := len(player.Badges)
+	chance := 0
+	ids := []int{}
+
+	switch {
+	case badges >= 8:
+		if rand.Intn(1000) < 2 {
+			ids = []int{150}
+			chance = 1
+		} else if rand.Intn(1000) < 2 {
+			ids = []int{151}
+			chance = 1
+		}
+	case badges >= 7:
+		if rand.Intn(1000) < 5 {
+			ids = []int{146}
+			chance = 1
+		}
+	case badges >= 4:
+		if rand.Intn(1000) < 5 {
+			ids = []int{145}
+			chance = 1
+		}
+	case badges >= 3:
+		if rand.Intn(1000) < 5 {
+			ids = []int{144}
+			chance = 1
+		}
+	}
+
+	if chance == 0 || len(ids) == 0 {
+		return Pokemon{}, false
+	}
+
+	pk := pokemonByID(ids[rand.Intn(len(ids))])
+	if pk.ID == 150 {
+		pk.Level = 50
+	} else if pk.ID == 151 {
+		pk.Level = 40
+	} else {
+		pk.Level = 30
+	}
+	pk.XPToNext = xpToNext(pk.Level)
+	pk.Shiny = false
+	pk.Type = pokemonType(pk.ID)
+	return pk, true
 }
 
 func captureChanceFor(pk Pokemon) int {
@@ -1581,6 +1691,8 @@ func captureChanceFor(pk Pokemon) int {
 		chance = 42
 	case "Muito raro":
 		chance = 25
+	case "Lendário":
+		chance = 8
 	default:
 		chance = 75
 	}
