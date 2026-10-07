@@ -374,66 +374,39 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 }
 
+
 func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	p, ok := getPlayer(iUser(i).ID)
-	if !ok {
-		respond(s, i, "Você ainda não começou. Use `/iniciar` primeiro.")
-		return
-	}
-	profileDescription := "Treinador Pokémon"
-	if p.Champion { profileDescription += " • 👑 **CAMPEÃO**" }
-	profileImage := officialArtworkURL(25)
-	if len(p.Pokemon) > 0 { profileImage = officialArtworkURL(p.Pokemon[0].ID) }
-	respondEmbed(s, i, &discordgo.MessageEmbed{
-		Title: "👤 " + p.Username, Description: profileDescription, Color: 0x5865F2,
-		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: profileImage},
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "⭐ Level", Value: strconv.Itoa(p.Level), Inline: true},
-			{Name: "✨ XP", Value: strconv.Itoa(p.XP), Inline: true},
-			{Name: "💰 Coins", Value: strconv.Itoa(p.Coins), Inline: true},
-			{Name: "📦 Pokémon", Value: strconv.Itoa(len(p.Pokemon)), Inline: true},
-			{Name: "🏆 Coliseu", Value: strconv.Itoa(p.ColiseumWins) + " vitórias", Inline: true},
-			{Name: "🏅 Insígnias", Value: strconv.Itoa(len(p.Badges)) + "/8", Inline: true},
-			{Name: "🏆 Liga", Value: fmt.Sprintf("%d/5", p.LeagueWins), Inline: true},
-			{Name: "👑 Título", Value: func() string { if p.Champion { return "Campeão" }; return "Treinador" }(), Inline: true},
-		},
-	})
+	p,ok:=getPlayer(iUser(i).ID);if !ok{respond(s,i,"Você ainda não começou. Use /iniciar primeiro.");return}
+	first:=Pokemon{ID:25,Name:"Pikachu",Level:1};if len(p.Pokemon)>0{first=p.Pokemon[0]};first.Type=pokemonType(first.ID)
+	title:="👤 Seu Perfil";if p.Champion{title="👑 Seu Perfil • CAMPEÃO"}
+	desc:=fmt.Sprintf("**%s**\nTreinador Pokémon",p.Username);if p.Champion{desc+=" • 👑 **Campeão da Liga**"}
+	xpNext:=p.Level*50;if xpNext<1{xpNext=1}
+	respondEmbed(s,i,&discordgo.MessageEmbed{Title:title,Description:desc,Color:0x5865F2,Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(first.ID)},Fields:[]*discordgo.MessageEmbedField{
+		{Name:"⭐ Level",Value:fmt.Sprintf("**%d**\n%s\n%d/%d XP",p.Level,progressBar(p.XP,xpNext,10),p.XP,xpNext),Inline:true},
+		{Name:"💰 Coins",Value:fmt.Sprintf("**%d**",p.Coins),Inline:true},
+		{Name:"📦 Pokémon",Value:fmt.Sprintf("**%d** capturados",len(p.Pokemon)),Inline:true},
+		{Name:"🏆 Coliseu",Value:fmt.Sprintf("**%d** vitórias",p.ColiseumWins),Inline:true},
+		{Name:"🏅 Insígnias",Value:fmt.Sprintf("**%d/8**\n%s",len(p.Badges),strings.Repeat("🏅",len(p.Badges))),Inline:true},
+		{Name:"🏆 Liga",Value:fmt.Sprintf("%s\n**%d/5** desafios",progressBar(p.LeagueWins,5,10),p.LeagueWins),Inline:true},
+		{Name:"👑 Título",Value:func()string{if p.Champion{return "**CAMPEÃO**"};return "Treinador"}(),Inline:true},
+		{Name:"🔥 Parceiro",Value:fmt.Sprintf("**%s**\n%s · Lv. %d",first.Name,typeEmoji(first.Type),first.Level),Inline:true},
+	},Footer:&discordgo.MessageEmbedFooter{Text:"/pokemon • /equipe • /ginasios • /elite"}})
 }
 
+
 func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	p, ok := getPlayer(iUser(i).ID)
-	if !ok {
-		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
-		return
+	p,ok:=getPlayer(iUser(i).ID);if !ok{respond(s,i,"Você ainda não começou. Use /iniciar primeiro.");return}
+	if len(p.Pokemon)==0{respond(s,i,"📦 Sua coleção está vazia.");return}
+	fields:=make([]*discordgo.MessageEmbedField,0,len(p.Pokemon))
+	for idx,pk:=range p.Pokemon{
+		pk.Type=pokemonType(pk.ID);hp:=pk.HP;if hp<=0||hp>battleHP(pk){hp=battleHP(pk)}
+		teamPos:="-";for pos,teamIdx:=range p.Team{if teamIdx==idx{teamPos=strconv.Itoa(pos+1);break}}
+		evoText:="";if evo:=evolutionFor(pk);evo!=nil{evoText=fmt.Sprintf("\n↗️ Evolui no Lv. %d → %s",evo.Level,evo.ToName)}
+		teamText:="▫️ Fora da equipe";if teamPos!="-" {teamText="👥 Equipe #"+teamPos}
+		shiny:="";if pk.Shiny{shiny=" ✨"}
+		fields=append(fields,&discordgo.MessageEmbedField{Name:fmt.Sprintf("**%d. %s**%s",idx+1,pk.Name,shiny),Value:fmt.Sprintf("%s **Lv. %d**\n❤️ %d/%d\n%s\n%s%s",typeEmoji(pk.Type),pk.Level,hp,battleHP(pk),rarity(pk),teamText,evoText),Inline:true})
 	}
-	lines := make([]string, 0, len(p.Pokemon))
-	for idx, pk := range p.Pokemon {
-		shiny := ""
-		if pk.Shiny {
-			shiny = " ✨"
-		}
-		if pk.Type == "" {
-			pk.Type = pokemonType(pk.ID)
-		}
-		evo := evolutionFor(pk)
-		extra := ""
-		if evo != nil {
-			extra = fmt.Sprintf(" → %s no Lv. %d", evo.ToName, evo.Level)
-		}
-		hp := pk.HP
-		if hp <= 0 || hp > battleHP(pk) {
-			hp = battleHP(pk)
-		}
-		lines = append(lines, fmt.Sprintf("**%d. %s**%s — %s — Lv. %d — ❤️ %d/%d — XP %d/%d%s", idx+1, pk.Name, shiny, pk.Type, pk.Level, hp, battleHP(pk), pk.XP, pk.XPToNext, extra))
-	}
-	imageURL := officialArtworkURL(25)
-	if len(p.Pokemon) > 0 { imageURL = officialArtworkURL(p.Pokemon[0].ID) }
-	respondEmbed(s, i, &discordgo.MessageEmbed{
-		Title: "📦 Seus Pokémon",
-		Description: strings.Join(lines, "\n"),
-		Color: 0x57F287,
-		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: imageURL},
-	})
+	respondEmbed(s,i,&discordgo.MessageEmbed{Title:fmt.Sprintf("📦 Sua Coleção • %d Pokémon",len(p.Pokemon)),Description:"Seu inventário de Pokémon em formato de coleção.\nUse /equipe para escolher os 6 que irão para as batalhas.",Color:0x57F287,Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(p.Pokemon[0].ID)},Fields:fields,Footer:&discordgo.MessageEmbedFooter{Text:"/treinar numero:N • /equipe adicionar • /curar"}})
 }
 
 func handleTrain(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -666,19 +639,20 @@ func handleTeam(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	store.mu.Unlock(); respond(s, i, "Use /equipe ver, /equipe adicionar, /equipe remover ou /equipe limpar.")
 }
 
+
 func handleTeamView(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	p, ok := getPlayer(iUser(i).ID)
-	if !ok { respond(s, i, "Você ainda não começou. Use /iniciar primeiro."); return }
-	if len(p.Team) == 0 { respond(s, i, "👥 Sua equipe está vazia. Use /equipe adicionar numero:1."); return }
-	lines := []string{}
-	for n, idx := range p.Team {
-		if idx < 0 || idx >= len(p.Pokemon) { continue }
-		pk := p.Pokemon[idx]; if pk.Type == "" { pk.Type = pokemonType(pk.ID) }
-		hp := pk.HP; if hp <= 0 || hp > battleHP(pk) { hp = battleHP(pk) }
-		lines = append(lines, fmt.Sprintf("**%d.** %s — %s — Lv. %d — ❤️ %d/%d", n+1, pk.Name, pk.Type, pk.Level, hp, battleHP(pk)))
+	p,ok:=getPlayer(iUser(i).ID);if !ok{respond(s,i,"Você ainda não começou. Use /iniciar primeiro.");return}
+	fields:=make([]*discordgo.MessageEmbedField,0,6)
+	for slot:=0;slot<6;slot++{
+		if slot>=len(p.Team){fields=append(fields,&discordgo.MessageEmbedField{Name:fmt.Sprintf("Slot %d",slot+1),Value:"🔒 **Slot vazio**\nUse /equipe adicionar",Inline:true});continue}
+		idx:=p.Team[slot];if idx<0||idx>=len(p.Pokemon){fields=append(fields,&discordgo.MessageEmbedField{Name:fmt.Sprintf("Slot %d",slot+1),Value:"⚠️ Slot inválido",Inline:true});continue}
+		pk:=p.Pokemon[idx];pk.Type=pokemonType(pk.ID);hp:=pk.HP;if hp<=0||hp>battleHP(pk){hp=battleHP(pk)}
+		fields=append(fields,&discordgo.MessageEmbedField{Name:fmt.Sprintf("🔹 %d. %s",slot+1,pk.Name),Value:fmt.Sprintf("%s **Lv. %d**\n❤️ %d/%d\n%s\n%s",typeEmoji(pk.Type),pk.Level,hp,battleHP(pk),progressBar(hp,battleHP(pk),8),rarity(pk)),Inline:true})
 	}
-	respondEmbed(s, i, &discordgo.MessageEmbed{Title: "👥 Sua equipe", Description: strings.Join(lines, "\n") + fmt.Sprintf("\n\n**%d/6 Pokémon**", len(lines)), Color: 0x57F287})
+	firstID:=25;if len(p.Team)>0&&p.Team[0]>=0&&p.Team[0]<len(p.Pokemon){firstID=p.Pokemon[p.Team[0]].ID}
+	respondEmbed(s,i,&discordgo.MessageEmbed{Title:fmt.Sprintf("👥 Sua equipe (%d/6)",len(p.Team)),Description:"Sua equipe de batalha.\nCada slot mostra nível, HP e raridade.",Color:0xF1C40F,Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(firstID)},Fields:fields,Footer:&discordgo.MessageEmbedFooter{Text:"/equipe adicionar • /equipe remover • /equipe limpar"}})
 }
+
 func handleHeal(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := iUser(i).ID
 	const cost = 20
@@ -782,36 +756,18 @@ func findGym(id string) *Gym {
 	return nil
 }
 
+
 func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	p, ok := getPlayer(iUser(i).ID)
-	if !ok { respond(s,i,"Você ainda não começou. Use /iniciar primeiro."); return }
-	lines := []string{}
-	for n,g := range gyms {
-		status := "🔒 Bloqueado"
-		if p.Level >= g.UnlockLevel {
-			status = "⚔️ Disponível"
-		}
-		if n > 0 {
-			previousBadge := gyms[n-1].Badge
-			hasPrevious := false
-			for _,b := range p.Badges {
-				if b == previousBadge {
-					hasPrevious = true
-					break
-				}
-			}
-			if !hasPrevious {
-				status = "🔒 Requer a insígnia anterior"
-			}
-		}
-		for _,b := range p.Badges {
-			if b == g.Badge {
-				status = "✅ Conquistado"
-			}
-		}
-		lines = append(lines, fmt.Sprintf("**%d. %s** — Líder **%s**\n%s · Tipo %s · Requer Lv. %d\n%s",n+1,g.Name,g.Leader,g.Badge,g.Type,g.UnlockLevel,status))
+	p,ok:=getPlayer(iUser(i).ID);if !ok{respond(s,i,"Você ainda não começou. Use /iniciar primeiro.");return}
+	fields:=make([]*discordgo.MessageEmbedField,0,len(gyms))
+	for n,g:=range gyms{
+		status:="🔒 Bloqueado";if p.Level>=g.UnlockLevel{status="⚔️ Disponível"}
+		if n>0{hasPrev:=false;for _,b:=range p.Badges{if b==gyms[n-1].Badge{hasPrev=true;break}};if !hasPrev{status="🔒 Requer anterior"}}
+		for _,b:=range p.Badges{if b==g.Badge{status="✅ Conquistado"}}
+		ace:=gymAce(g)
+		fields=append(fields,&discordgo.MessageEmbedField{Name:fmt.Sprintf("%d. %s",n+1,g.Name),Value:fmt.Sprintf("%s **%s**\n%s **%s**\n🎖️ %s\n🔓 Requer Lv. %d\n**%s**\n⭐ Ace: %s Lv.%d",typeEmoji(g.Type),g.Leader,typeEmoji(g.Type),g.Type,g.Badge,g.UnlockLevel,status,ace.Name,ace.Level),Inline:true})
 	}
-	respondEmbed(s,i,&discordgo.MessageEmbed{Title:"🏟️ Ginásios de Kanto",Description:"Conquiste as 8 insígnias para chegar à Liga Pokémon.\n\n"+strings.Join(lines,"\n\n")+"\n\nUse /ginasio numero:N para desafiar.",Color:0xF1C40F,Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(112)}})
+	respondEmbed(s,i,&discordgo.MessageEmbed{Title:"🏟️ Ginásios de Kanto",Description:fmt.Sprintf("Desafie os líderes, conquiste as **8 insígnias** e torne-se o Campeão!\n\n**Progresso:** %d/8  %s",len(p.Badges),progressBar(len(p.Badges),8,8)),Color:0xF1C40F,Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(gymAce(gyms[0]).ID)},Fields:fields,Footer:&discordgo.MessageEmbedFooter{Text:"/ginasio numero:N • A ordem dos ginásios é obrigatória"}})
 }
 
 func handleGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -932,41 +888,22 @@ func createLeagueBattle(p Player, stage int) Battle {
 	}
 }
 
+
 func handleElite(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	p, ok := getPlayer(iUser(i).ID)
-	if !ok { respond(s,i,"Você ainda não começou. Use /iniciar primeiro."); return }
-
-	lines := make([]string,0,len(leagueTrainers))
-	for idx, trainer := range leagueTrainers {
-		status := "🔒 Requer 8 insígnias"
-		if len(p.Badges) >= 8 {
-			if idx < p.LeagueWins { status = "✅ Derrotado" } else if idx == p.LeagueWins { status = "⚔️ Próximo desafio" }
-		}
-		icon := fmt.Sprintf("%d️⃣",idx+1)
-		if trainer.IsChampion { icon = "👑" }
-		lines = append(lines,fmt.Sprintf("%s **%s** · %s · Lv. %d · %s",icon,trainer.Name,trainer.Type,trainer.Pokemon[0].Level,status))
+	p,ok:=getPlayer(iUser(i).ID);if !ok{respond(s,i,"Você ainda não começou. Use /iniciar primeiro.");return}
+	fields:=make([]*discordgo.MessageEmbedField,0,len(leagueTrainers))
+	for idx,trainer:=range leagueTrainers{
+		levels:=make([]string,0,len(trainer.Pokemon));for _,pk:=range trainer.Pokemon{levels=append(levels,fmt.Sprintf("%s Lv.%d",pk.Name,pk.Level))}
+		icon:="🛡️";if trainer.IsChampion{icon="👑"}
+		fields=append(fields,&discordgo.MessageEmbedField{Name:fmt.Sprintf("%s %d. %s",icon,idx+1,trainer.Name),Value:fmt.Sprintf("%s **%s**\n%s\n**%s**",typeEmoji(trainer.Type),trainer.Type,strings.Join(levels," • "),leagueStatus(p,idx)),Inline:true})
 	}
-
-	description := "Conquiste as 8 insígnias para entrar na Liga Pokémon. Depois, enfrente os 4 membros em sequência e finalmente o Campeão."
-	if p.Champion { description = "👑 **Você é o Campeão!** A Elite Four e o Hall da Fama foram conquistados." }
+	description:="Derrote os 4 membros da Elite Four em sequência e enfrente o Campeão."
+	if len(p.Badges)<8{description+=fmt.Sprintf("\n\n🔒 Requer **8 insígnias**\n%s\n**%d/8**",progressBar(len(p.Badges),8,8),len(p.Badges))
+	}else if p.Champion{description+="\n\n👑 **VOCÊ É O CAMPEÃO!**\nHall da Fama desbloqueado."
+	}else{description+=fmt.Sprintf("\n\n⚔️ **Progresso %d/5**\n%s",p.LeagueWins,progressBar(p.LeagueWins,5,10))}
 	components:=[]discordgo.MessageComponent{}
-	if len(p.Badges)>=8 && !p.Champion && p.LeagueWins<5 {
-		components=[]discordgo.MessageComponent{discordgo.ActionsRow{Components:[]discordgo.MessageComponent{
-			discordgo.Button{CustomID:"elite:start:"+p.DiscordID,Label:"🏆 Iniciar Desafio",Style:discordgo.SuccessButton},
-		}}}
-	}
-	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{
-		Title:"🏆 Elite Four • Liga Pokémon",
-		Description:description,
-		Color:0x9B59B6,
-		Fields:[]*discordgo.MessageEmbedField{
-			{Name:"🎖️ Progresso",Value:fmt.Sprintf("%d/5 desafios",p.LeagueWins),Inline:true},
-			{Name:"🏅 Insígnias",Value:fmt.Sprintf("%d/8",len(p.Badges)),Inline:true},
-			{Name:"💰 Grande prêmio",Value:"2.000 Coins + 500 XP",Inline:true},
-		},
-		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(149)},
-		Footer:&discordgo.MessageEmbedFooter{Text:strings.Join(lines,"\n")},
-	},components)
+	if len(p.Badges)>=8&&!p.Champion&&p.LeagueWins<5{components=[]discordgo.MessageComponent{discordgo.ActionsRow{Components:[]discordgo.MessageComponent{discordgo.Button{CustomID:"elite:start:"+p.DiscordID,Label:"🏆 Iniciar Desafio da Elite Four",Style:discordgo.SuccessButton}}}}}
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{Title:"🏆 Elite Four • Liga Pokémon",Description:description,Color:0x9B59B6,Fields:fields,Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(149)},Footer:&discordgo.MessageEmbedFooter{Text:"Lorelei • Bruno • Agatha • Lance • Campeão Blue"}},components)
 }
 
 func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, userID string, moveIndex int) {
@@ -1095,16 +1032,10 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 	editBattle(s, i, battle, strings.Join(messages, "\n"))
 }
 
+
 func respondLeagueBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, stage int) {
 	trainer:=leagueTrainers[stage]
-	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{
-		Title:fmt.Sprintf("🏆 %s • Desafio %d/5",trainer.Name,stage+1),
-		Description:fmt.Sprintf("**%s** enfrenta **%s**!\n\n⚠️ Esta batalha faz parte da sequência da Liga Pokémon.",battle.PlayerPokemon.Name,battle.Opponent.Name),
-		Color:0x9B59B6,
-		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(battle.Opponent.ID)},
-		Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},
-		Fields:battleFields(battle),
-	},battleComponents(battle))
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{Title:fmt.Sprintf("🏆 %s • Desafio %d/5",trainer.Name,stage+1),Description:fmt.Sprintf("**%s** VS **%s**\n%s **Tipo:** %s\n\n⚠️ Sequência obrigatória da Liga Pokémon.",battle.PlayerPokemon.Name,battle.Opponent.Name,typeEmoji(trainer.Type),trainer.Type),Color:typeColor(trainer.Type),Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(battle.Opponent.ID)},Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},Fields:battleFields(battle)},battleComponents(battle))
 }
 
 func editLeagueBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, stage int, logText string) {
@@ -1126,12 +1057,13 @@ func editLeagueBattle(s *discordgo.Session, i *discordgo.InteractionCreate, batt
 	if err!=nil { log.Printf("edit league battle: %v",err) }
 }
 
+
 func battleFields(battle Battle) []*discordgo.MessageEmbedField {
-	moves := movesFor(battle.PlayerPokemon)
+	moves:=movesFor(battle.PlayerPokemon);pm:=battleHP(battle.PlayerPokemon);om:=battleHP(battle.Opponent)
 	return []*discordgo.MessageEmbedField{
-		{Name: "🧑‍🎤 Seu Pokémon", Value: fmt.Sprintf("%s — Lv. %d\n🏷️ Tipo: %s\n❤️ HP: %d/%d", battle.PlayerPokemon.Name, battle.PlayerPokemon.Level, battle.PlayerPokemon.Type, battle.PlayerHP, battleHP(battle.PlayerPokemon)), Inline: true},
-		{Name: "👾 Adversário", Value: fmt.Sprintf("%s — Lv. %d\n🏷️ Tipo: %s\n❤️ HP: %d/%d", battle.Opponent.Name, battle.Opponent.Level, battle.Opponent.Type, battle.OpponentHP, battleHP(battle.Opponent)), Inline: true},
-		{Name: "🎯 Seus golpes", Value: fmt.Sprintf("1. **%s** (%s)\n2. **%s** (%s)\n3. **%s** (%s)", moves[0].Name, moves[0].Type, moves[1].Name, moves[1].Type, moves[2].Name, moves[2].Type)},
+		{Name:"🔥 "+battle.PlayerPokemon.Name,Value:fmt.Sprintf("Lv. %d\n%s\n❤️ **%d/%d HP**",battle.PlayerPokemon.Level,progressBar(battle.PlayerHP,pm,10),battle.PlayerHP,pm),Inline:true},
+		{Name:"👾 "+battle.Opponent.Name,Value:fmt.Sprintf("Lv. %d\n%s\n❤️ **%d/%d HP**",battle.Opponent.Level,progressBar(battle.OpponentHP,om,10),battle.OpponentHP,om),Inline:true},
+		{Name:"🎯 Ataques",Value:fmt.Sprintf("1️⃣ **%s** · %s\n2️⃣ **%s** · %s\n3️⃣ **%s** · %s",moves[0].Name,moves[0].Type,moves[1].Name,moves[1].Type,moves[2].Name,moves[2].Type)},
 	}
 }
 
@@ -1156,15 +1088,10 @@ func respondBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle 
 	},battleComponents(battle))
 }
 
+
 func respondGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, gym Gym) {
-	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{
-		Title:"🏟️ "+gym.Name,
-		Description:fmt.Sprintf("👤 Líder **%s** • Tipo **%s**\n\n**%s** vs **%s**",gym.Leader,gym.Type,battle.PlayerPokemon.Name,battle.Opponent.Name),
-		Color:0xF1C40F,
-		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(battle.Opponent.ID)},
-		Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},
-		Fields:battleFields(battle),
-	},battleComponents(battle))
+	ace:=gymAce(gym)
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{Title:"🏟️ "+gym.Name+" • VS "+gym.Leader,Description:fmt.Sprintf("👤 **Líder:** %s\n%s **Tipo:** %s\n\n**%s** VS **%s**",gym.Leader,typeEmoji(gym.Type),gym.Type,battle.PlayerPokemon.Name,battle.Opponent.Name),Color:typeColor(gym.Type),Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(ace.ID)},Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},Fields:battleFields(battle)},battleComponents(battle))
 }
 
 func editBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, logText string) {
@@ -1987,6 +1914,68 @@ func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content strin
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Content: content},
 	})
+}
+
+
+func progressBar(current, max, width int) string {
+	if max <= 0 { max = 1 }
+	if current < 0 { current = 0 }
+	if current > max { current = max }
+	if width <= 0 { width = 10 }
+	filled := int(float64(current) / float64(max) * float64(width))
+	return strings.Repeat("🟩", filled) + strings.Repeat("⬛", width-filled)
+}
+
+func typeEmoji(t string) string {
+	switch {
+	case strings.Contains(t, "Fogo"): return "🔥"
+	case strings.Contains(t, "Água"): return "💧"
+	case strings.Contains(t, "Elétrico"): return "⚡"
+	case strings.Contains(t, "Planta"): return "🌿"
+	case strings.Contains(t, "Pedra"): return "🪨"
+	case strings.Contains(t, "Terra"): return "🌍"
+	case strings.Contains(t, "Veneno"): return "☠️"
+	case strings.Contains(t, "Psíquico"): return "🔮"
+	case strings.Contains(t, "Gelo"): return "❄️"
+	case strings.Contains(t, "Fantasma"): return "👻"
+	case strings.Contains(t, "Lutador"): return "🥊"
+	case strings.Contains(t, "Dragão"): return "🐉"
+	case strings.Contains(t, "Inseto"): return "🐛"
+	case strings.Contains(t, "Voador"): return "🪽"
+	default: return "🔹"
+	}
+}
+
+func typeColor(t string) int {
+	switch {
+	case strings.Contains(t, "Fogo"): return 0xE74C3C
+	case strings.Contains(t, "Água"): return 0x3498DB
+	case strings.Contains(t, "Elétrico"): return 0xF1C40F
+	case strings.Contains(t, "Planta"): return 0x2ECC71
+	case strings.Contains(t, "Pedra"): return 0x8E7D5B
+	case strings.Contains(t, "Terra"): return 0xA67C52
+	case strings.Contains(t, "Veneno"): return 0x9B59B6
+	case strings.Contains(t, "Psíquico"): return 0xE84393
+	case strings.Contains(t, "Gelo"): return 0x74B9FF
+	case strings.Contains(t, "Fantasma"): return 0x6C5CE7
+	case strings.Contains(t, "Lutador"): return 0xD35400
+	case strings.Contains(t, "Dragão"): return 0x5F27CD
+	default: return 0x5865F2
+	}
+}
+
+func gymAce(g Gym) Pokemon {
+	if len(g.Pokemon) == 0 { return Pokemon{ID:25, Name:"Pikachu", Type:"Elétrico", Level:1} }
+	pk := g.Pokemon[len(g.Pokemon)-1]
+	pk.Type = pokemonType(pk.ID)
+	return pk
+}
+
+func leagueStatus(p Player, idx int) string {
+	if p.Champion || idx < p.LeagueWins { return "✅ Concluído" }
+	if len(p.Badges) < 8 { return "🔒 8 insígnias" }
+	if idx == p.LeagueWins { return "⚔️ Próximo desafio" }
+	return "🔒 Aguarde a etapa anterior"
 }
 
 func respondEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, embed *discordgo.MessageEmbed) {
