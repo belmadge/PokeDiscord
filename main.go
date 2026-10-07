@@ -49,6 +49,7 @@ type Player struct {
 	ActiveLureName  string         `json:"active_lure_name"`
 	ColiseumWins    int            `json:"coliseum_wins"`
 	Team            []int          `json:"team"`
+	Badges          []string       `json:"badges"`
 }
 
 type Route struct {
@@ -82,6 +83,7 @@ type Battle struct {
 	Opponent      Pokemon
 	PlayerHP      int
 	OpponentHP    int
+	GymID         string
 }
 
 type Store struct {
@@ -113,6 +115,24 @@ var pokemonPool = []Pokemon{
 	{ID: 102, Name: "Exeggcute", Level: 1, XPToNext: 14},
 	{ID: 128, Name: "Tauros", Level: 1, XPToNext: 14},
 	{ID: 123, Name: "Scyther", Level: 1, XPToNext: 14},
+}
+
+
+type Gym struct {
+	ID string
+	Name string
+	Leader string
+	Type string
+	Badge string
+	UnlockLevel int
+	RewardCoins int
+	Pokemon []Pokemon
+}
+
+var gyms = []Gym{
+	{ID:"pedra", Name:"Ginásio de Pewter", Leader:"Brock", Type:"Pedra", Badge:"🌑 Insígnia Boulder", UnlockLevel:3, RewardCoins:100, Pokemon:[]Pokemon{{ID:74,Name:"Geodude",Level:5,XPToNext:30},{ID:95,Name:"Onix",Level:7,XPToNext:30}}},
+	{ID:"agua", Name:"Ginásio de Cerulean", Leader:"Misty", Type:"Água", Badge:"💧 Insígnia Cascade", UnlockLevel:6, RewardCoins:150, Pokemon:[]Pokemon{{ID:120,Name:"Staryu",Level:8,XPToNext:30},{ID:121,Name:"Starmie",Level:10,XPToNext:30}}},
+	{ID:"eletrico", Name:"Ginásio de Vermilion", Leader:"Lt. Surge", Type:"Elétrico", Badge:"⚡ Insígnia Thunder", UnlockLevel:9, RewardCoins:200, Pokemon:[]Pokemon{{ID:100,Name:"Voltorb",Level:11,XPToNext:30},{ID:26,Name:"Raichu",Level:13,XPToNext:30}}},
 }
 
 var routes = []Route{
@@ -194,6 +214,8 @@ func registerCommands(s *discordgo.Session) error {
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "remover", Description: "Remova um Pokémon da equipe", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true}}},
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "limpar", Description: "Remova todos os Pokémon da equipe"},
 		}},
+		{Name: "ginasios", Description: "Veja os ginásios e suas insígnias"},
+		{Name: "ginasio", Description: "Desafie um líder de ginásio", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do ginásio", Required: true}}},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
@@ -261,6 +283,10 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleHeal(s, i)
 	case "equipe":
 		handleTeam(s, i)
+	case "ginasios":
+		handleGyms(s, i)
+	case "ginasio":
+		handleGymBattle(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "rotas":
@@ -291,6 +317,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		CurrentRoute: "route1",
 		Items: map[string]int{"isca": 0, "super_isca": 0},
 		Team: []int{0},
+		Badges: []string{},
 	}
 	store.Players[user.ID] = p
 	store.mu.Unlock()
@@ -693,6 +720,40 @@ func handleRanking(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Description: strings.Join(lines, "\n"),
 		Color: 0x5865F2,
 	})
+}
+
+
+func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	p, ok := getPlayer(iUser(i).ID)
+	if !ok { respond(s,i,"Você ainda não começou. Use /iniciar primeiro."); return }
+	lines := []string{}
+	for n,g := range gyms {
+		status := "🔒 Bloqueado"
+		if p.Level >= g.UnlockLevel { status = "⚔️ Disponível" }
+		for _,b := range p.Badges { if b == g.Badge { status = "✅ Conquistado" } }
+		lines = append(lines, fmt.Sprintf("**%d. %s** — Líder **%s**\n%s · Tipo %s · Requer Lv. %d\n%s",n+1,g.Name,g.Leader,g.Badge,g.Type,g.UnlockLevel,status))
+	}
+	respondEmbed(s,i,&discordgo.MessageEmbed{Title:"🏟️ Ginásios",Description:strings.Join(lines,"\n\n")+"\n\nUse /ginasio numero:N para desafiar.",Color:0xF1C40F})
+}
+
+func handleGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	opts := i.ApplicationCommandData().Options
+	if len(opts)==0 { respond(s,i,"Use /ginasios para ver os ginásios."); return }
+	n := int(opts[0].IntValue())-1
+	if n<0 || n>=len(gyms) { respond(s,i,"❌ Ginásio inválido. Use /ginasios."); return }
+	g := gyms[n]; uid := iUser(i).ID
+	store.mu.Lock(); p,ok := store.Players[uid]
+	if !ok { store.mu.Unlock(); respond(s,i,"Você ainda não começou. Use /iniciar primeiro."); return }
+	if p.Level<g.UnlockLevel { store.mu.Unlock(); respond(s,i,fmt.Sprintf("🔒 Você precisa estar no nível %d.",g.UnlockLevel)); return }
+	for _,b := range p.Badges { if b==g.Badge { store.mu.Unlock(); respond(s,i,"✅ Você já conquistou essa insígnia."); return } }
+	if _,active:=store.Battles[uid]; active { store.mu.Unlock(); respond(s,i,"⚔️ Você já está em uma batalha."); return }
+	if len(p.Team)==0 { store.mu.Unlock(); respond(s,i,"❌ Monte sua equipe com /equipe."); return }
+	idx:=p.Team[0]; if idx<0 || idx>=len(p.Pokemon) { store.mu.Unlock(); respond(s,i,"❌ Sua equipe está inválida."); return }
+	chosen:=p.Pokemon[idx]; chosen.Type=pokemonType(chosen.ID); hp:=chosen.HP; if hp<=0 || hp>battleHP(chosen) { hp=battleHP(chosen) }
+	op:=g.Pokemon[rand.Intn(len(g.Pokemon))]; op.Type=pokemonType(op.ID)
+	battle:=Battle{OwnerID:uid,PlayerPokemon:chosen,Opponent:op,PlayerHP:hp,OpponentHP:battleHP(op),GymID:g.ID}
+	store.Battles[uid]=battle; store.mu.Unlock()
+	respondGymBattle(s,i,battle,g)
 }
 
 func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
