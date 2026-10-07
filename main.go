@@ -232,9 +232,9 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	pk := pokemonPool[rand.Intn(len(pokemonPool))]
-	pk.Level = 1 + rng.Intn(5)
+	pk.Level = 1 + rand.Intn(5)
 	pk.XPToNext = 10 + pk.Level*4
-	pk.Shiny = rng.Intn(100) == 0
+	pk.Shiny = rand.Intn(100) == 0
 	store.Encounters[userID] = Encounter{OwnerID: userID, Pokemon: pk, ExpiresAt: time.Now().Add(60 * time.Second)}
 	store.mu.Unlock()
 
@@ -301,7 +301,7 @@ func catchPokemon(userID string) bool {
 		delete(store.Encounters, userID)
 		return false
 	}
-	if rng.Intn(100) >= 70 {
+	if rand.Intn(100) >= 70 {
 		delete(store.Encounters, userID)
 		return false
 	}
