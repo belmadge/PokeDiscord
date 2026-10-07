@@ -903,10 +903,14 @@ func pokemonType(id int) string {
 		13: "Inseto", 14: "Inseto", 15: "Inseto",
 		16: "Normal/Voador", 17: "Normal/Voador", 18: "Normal/Voador",
 		19: "Normal", 20: "Normal", 21: "Normal/Voador", 22: "Normal/Voador",
-		25: "Elétrico", 29: "Veneno", 32: "Veneno",
-		35: "Fada", 41: "Veneno/Voador", 42: "Veneno/Voador",
-		43: "Planta/Veneno", 52: "Normal", 74: "Pedra/Terra",
-		75: "Pedra/Terra", 102: "Planta/Psíquico", 123: "Inseto/Voador", 128: "Normal",
+		25: "Elétrico",
+		29: "Veneno", 30: "Veneno", 32: "Veneno", 33: "Veneno",
+		35: "Fada",
+		41: "Veneno/Voador", 42: "Veneno/Voador",
+		43: "Planta/Veneno", 44: "Planta/Veneno", 45: "Planta/Veneno",
+		52: "Normal", 53: "Normal",
+		74: "Pedra/Terra", 75: "Pedra/Terra",
+		102: "Planta/Psíquico", 123: "Inseto/Voador", 128: "Normal",
 	}
 	if t, ok := types[id]; ok {
 		return t
@@ -1242,6 +1246,11 @@ func evolutionFor(pk Pokemon) *Evolution {
 		{FromID: 19, FromName: "Rattata", ToID: 20, ToName: "Raticate", Level: 20},
 		{FromID: 21, FromName: "Spearow", ToID: 22, ToName: "Fearow", Level: 20},
 		{FromID: 41, FromName: "Zubat", ToID: 42, ToName: "Golbat", Level: 22},
+		{FromID: 43, FromName: "Oddish", ToID: 44, ToName: "Gloom", Level: 21},
+		{FromID: 44, FromName: "Gloom", ToID: 45, ToName: "Vileplume", Level: 32},
+		{FromID: 52, FromName: "Meowth", ToID: 53, ToName: "Persian", Level: 28},
+		{FromID: 29, FromName: "Nidoran♀", ToID: 30, ToName: "Nidorina", Level: 16},
+		{FromID: 32, FromName: "Nidoran♂", ToID: 33, ToName: "Nidorino", Level: 16},
 		{FromID: 74, FromName: "Geodude", ToID: 75, ToName: "Graveler", Level: 25},
 	}
 	for _, evo := range evolutions {
