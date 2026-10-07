@@ -27,6 +27,7 @@ type Pokemon struct {
 	XP       int    `json:"xp"`
 	XPToNext int    `json:"xp_to_next"`
 	Shiny    bool   `json:"shiny"`
+	HP       int    `json:"hp"`
 }
 
 type Move struct {
@@ -185,6 +186,7 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "coliseu", Description: "Entre no Coliseu e enfrente um adversário", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true, MinValue: func() *float64 { v := 1.0; return &v }()}}},
 		{Name: "liga", Description: "Veja sua progressão no Coliseu"},
 		{Name: "ranking", Description: "Veja o ranking de treinadores"},
+		{Name: "curar", Description: "Recupere o HP de todos os seus Pokémon"},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
@@ -248,6 +250,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleLeague(s, i)
 	case "ranking":
 		handleRanking(s, i)
+	case "curar":
+		handleHeal(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "rotas":
@@ -332,7 +336,11 @@ func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if evo != nil {
 			extra = fmt.Sprintf(" → %s no Lv. %d", evo.ToName, evo.Level)
 		}
-		lines = append(lines, fmt.Sprintf("**%d. %s**%s — %s — Lv. %d — XP %d/%d%s", idx+1, pk.Name, shiny, pk.Type, pk.Level, pk.XP, pk.XPToNext, extra))
+		hp := pk.HP
+		if hp <= 0 || hp > battleHP(pk) {
+			hp = battleHP(pk)
+		}
+		lines = append(lines, fmt.Sprintf("**%d. %s**%s — %s — Lv. %d — ❤️ %d/%d — XP %d/%d%s", idx+1, pk.Name, shiny, pk.Type, pk.Level, hp, battleHP(pk), pk.XP, pk.XPToNext, extra))
 	}
 	respondEmbed(s, i, &discordgo.MessageEmbed{
 		Title: "📦 Seus Pokémon",
@@ -537,6 +545,40 @@ func coliseumRank(wins int) (string, int, int) {
 	}
 }
 
+func handleHeal(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := iUser(i).ID
+	const cost = 20
+
+	store.mu.Lock()
+	p, ok := store.Players[userID]
+	if !ok {
+		store.mu.Unlock()
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+	if _, active := store.Battles[userID]; active {
+		store.mu.Unlock()
+		respond(s, i, "⚔️ Termine sua batalha antes de curar seus Pokémon.")
+		return
+	}
+	if p.Coins < cost {
+		store.mu.Unlock()
+		respond(s, i, fmt.Sprintf("❌ Curar custa **%d Coins**. Você possui **%d**.", cost, p.Coins))
+		return
+	}
+	p.Coins -= cost
+	for idx := range p.Pokemon {
+		p.Pokemon[idx].HP = battleHP(p.Pokemon[idx])
+	}
+	store.Players[userID] = p
+	if err := saveStoreLocked(); err != nil {
+		log.Printf("save heal: %v", err)
+	}
+	store.mu.Unlock()
+
+	respond(s, i, fmt.Sprintf("💚 **Todos os seus Pokémon foram curados!**\n\n💰 -%d Coins\n💰 Saldo: %d Coins", cost, p.Coins))
+}
+
 func handleLeague(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p, ok := getPlayer(iUser(i).ID)
 	if !ok {
@@ -625,12 +667,17 @@ func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	chosen := player.Pokemon[index]
 	chosen.Type = pokemonType(chosen.ID)
+	maxHP := battleHP(chosen)
+	currentHP := chosen.HP
+	if currentHP <= 0 || currentHP > maxHP {
+		currentHP = maxHP
+	}
 	opponent := randomOpponent(player.Level)
 	battle := Battle{
 		OwnerID: userID,
 		PlayerPokemon: chosen,
 		Opponent: opponent,
-		PlayerHP: battleHP(chosen),
+		PlayerHP: currentHP,
 		OpponentHP: battleHP(opponent),
 	}
 	store.Battles[userID] = battle
@@ -684,13 +731,35 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 	messages = append(messages, fmt.Sprintf("💥 **%s usou %s!** %d de dano%s", battle.Opponent.Name, opponentMove.Name, opponentDamage, effectivenessText(opponentMultiplier)))
 
 	if battle.PlayerHP <= 0 {
+		p := store.Players[userID]
+		for idx := range p.Pokemon {
+			if p.Pokemon[idx].ID == battle.PlayerPokemon.ID && p.Pokemon[idx].Level == battle.PlayerPokemon.Level && p.Pokemon[idx].Shiny == battle.PlayerPokemon.Shiny {
+				p.Pokemon[idx].HP = 0
+				break
+			}
+		}
+		store.Players[userID] = p
+		if err := saveStoreLocked(); err != nil {
+			log.Printf("save battle defeat: %v", err)
+		}
 		delete(store.Battles, userID)
 		store.mu.Unlock()
 		editComponent(s, i, fmt.Sprintf("💀 **Derrota!**\n\n%s\nSeu Pokémon ficou sem HP. Tente novamente no Coliseu.", strings.Join(messages, "\n")))
 		return
 	}
 
+	p := store.Players[userID]
+	for idx := range p.Pokemon {
+		if p.Pokemon[idx].ID == battle.PlayerPokemon.ID && p.Pokemon[idx].Level == battle.PlayerPokemon.Level && p.Pokemon[idx].Shiny == battle.PlayerPokemon.Shiny {
+			p.Pokemon[idx].HP = battle.PlayerHP
+			break
+		}
+	}
+	store.Players[userID] = p
 	store.Battles[userID] = battle
+	if err := saveStoreLocked(); err != nil {
+		log.Printf("save battle state: %v", err)
+	}
 	store.mu.Unlock()
 	editBattle(s, i, battle, strings.Join(messages, "\n"))
 }
