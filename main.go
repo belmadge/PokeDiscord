@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"sort"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -45,6 +46,7 @@ type Player struct {
 	Items           map[string]int `json:"items"`
 	ActiveLureUntil time.Time      `json:"active_lure_until"`
 	ActiveLureName  string         `json:"active_lure_name"`
+	ColiseumWins    int            `json:"coliseum_wins"`
 }
 
 type Route struct {
@@ -181,6 +183,8 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "comprar", Description: "Compre um item na loja", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "item", Description: "Item que deseja comprar", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Isca", Value: "isca"}, {Name: "Super Isca", Value: "super_isca"}}}}},
 		{Name: "usar", Description: "Use uma isca do inventário", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "item", Description: "Isca que deseja usar", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Isca", Value: "isca"}, {Name: "Super Isca", Value: "super_isca"}}}}},
 		{Name: "coliseu", Description: "Entre no Coliseu e enfrente um adversário", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true, MinValue: func() *float64 { v := 1.0; return &v }()}}},
+		{Name: "liga", Description: "Veja sua progressão no Coliseu"},
+		{Name: "ranking", Description: "Veja o ranking de treinadores"},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
@@ -240,6 +244,10 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleUse(s, i)
 	case "coliseu":
 		handleColiseum(s, i)
+	case "liga":
+		handleLeague(s, i)
+	case "ranking":
+		handleRanking(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "rotas":
@@ -516,6 +524,78 @@ func handlePokedex(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 }
 
+func coliseumRank(wins int) (string, int, int) {
+	switch {
+	case wins >= 20:
+		return "👑 Elite Four", 20, 0
+	case wins >= 10:
+		return "🥇 Ouro", 10, 20
+	case wins >= 5:
+		return "🥈 Prata", 5, 10
+	default:
+		return "🥉 Bronze", 0, 5
+	}
+}
+
+func handleLeague(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	p, ok := getPlayer(iUser(i).ID)
+	if !ok {
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+	rank, current, next := coliseumRank(p.ColiseumWins)
+	progress := fmt.Sprintf("%d vitórias", p.ColiseumWins)
+	if next > 0 {
+		progress += fmt.Sprintf("\nFaltam **%d** vitórias para subir.", next-p.ColiseumWins)
+	} else {
+		progress += "\nVocê alcançou o topo do Coliseu! 👑"
+	}
+	respondEmbed(s, i, &discordgo.MessageEmbed{
+		Title: "🏆 Liga do Coliseu",
+		Description: fmt.Sprintf("**%s**\n\n%s", rank, progress),
+		Color: 0xF2A900,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "🥉 Bronze", Value: "0–4 vitórias", Inline: true},
+			{Name: "🥈 Prata", Value: "5–9 vitórias", Inline: true},
+			{Name: "🥇 Ouro", Value: "10–19 vitórias", Inline: true},
+			{Name: "👑 Elite Four", Value: "20+ vitórias", Inline: true},
+			{Name: "Próximo marco", Value: func() string { if next == 0 { return "Topo alcançado" }; return strconv.Itoa(next) + " vitórias" }(), Inline: true},
+			{Name: "Progresso", Value: fmt.Sprintf("%d", p.ColiseumWins-current), Inline: true},
+		},
+	})
+}
+
+func handleRanking(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	store.mu.RLock()
+	players := make([]Player, 0, len(store.Players))
+	for _, p := range store.Players {
+		players = append(players, p)
+	}
+	store.mu.RUnlock()
+
+	sort.Slice(players, func(i, j int) bool {
+		if players[i].ColiseumWins == players[j].ColiseumWins {
+			return players[i].Level > players[j].Level
+		}
+		return players[i].ColiseumWins > players[j].ColiseumWins
+	})
+
+	limit := len(players)
+	if limit > 10 { limit = 10 }
+	lines := make([]string, 0, limit)
+	for idx := 0; idx < limit; idx++ {
+		lines = append(lines, fmt.Sprintf("**%d. %s** — %d vitórias — Lv. %d", idx+1, players[idx].Username, players[idx].ColiseumWins, players[idx].Level))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "Nenhum treinador começou a jornada ainda.")
+	}
+	respondEmbed(s, i, &discordgo.MessageEmbed{
+		Title: "🏆 Ranking de Treinadores",
+		Description: strings.Join(lines, "\n"),
+		Color: 0x5865F2,
+	})
+}
+
 func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := iUser(i).ID
 	opts := i.ApplicationCommandData().Options
@@ -585,6 +665,7 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 		rewardCoins := 15 + battle.Opponent.Level*3
 		rewardXP := 15 + battle.Opponent.Level*5
 		p.Coins += rewardCoins
+		p.ColiseumWins++
 		p.Pokemon = addPokemonXP(p.Pokemon, battle.PlayerPokemon, rewardXP)
 		store.Players[userID] = p
 		delete(store.Battles, userID)
