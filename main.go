@@ -149,6 +149,21 @@ var gyms = []Gym{
 	{ID:"terra", Name:"Ginásio de Viridian", Leader:"Giovanni", Type:"Terra", Badge:"🌍 Insígnia Earth", UnlockLevel:24, RewardCoins:500, Pokemon:[]Pokemon{{ID:111,Name:"Rhyhorn",Level:26,XPToNext:30},{ID:112,Name:"Rhydon",Level:28,XPToNext:30}}},
 }
 
+type LeagueTrainer struct {
+	Name string
+	Type string
+	Pokemon []Pokemon
+	IsChampion bool
+}
+
+var leagueTrainers = []LeagueTrainer{
+	{Name:"Lorelei", Type:"Gelo", Pokemon:[]Pokemon{{ID:87,Name:"Dewgong",Level:54,XPToNext:30},{ID:91,Name:"Cloyster",Level:55,XPToNext:30},{ID:124,Name:"Jynx",Level:56,XPToNext:30}}},
+	{Name:"Bruno", Type:"Lutador", Pokemon:[]Pokemon{{ID:95,Name:"Onix",Level:55,XPToNext:30},{ID:106,Name:"Hitmonlee",Level:56,XPToNext:30},{ID:68,Name:"Machamp",Level:58,XPToNext:30}}},
+	{Name:"Agatha", Type:"Fantasma", Pokemon:[]Pokemon{{ID:94,Name:"Gengar",Level:56,XPToNext:30},{ID:93,Name:"Haunter",Level:57,XPToNext:30},{ID:94,Name:"Gengar",Level:60,XPToNext:30}}},
+	{Name:"Lance", Type:"Dragão", Pokemon:[]Pokemon{{ID:130,Name:"Gyarados",Level:58,XPToNext:30},{ID:142,Name:"Aerodactyl",Level:60,XPToNext:30},{ID:149,Name:"Dragonite",Level:62,XPToNext:30}}},
+	{Name:"Campeão Blue", Type:"Misto", IsChampion:true, Pokemon:[]Pokemon{{ID:18,Name:"Pidgeot",Level:61,XPToNext:30},{ID:65,Name:"Alakazam",Level:59,XPToNext:30},{ID:112,Name:"Rhydon",Level:61,XPToNext:30},{ID:130,Name:"Gyarados",Level:63,XPToNext:30},{ID:6,Name:"Charizard",Level:65,XPToNext:30}}},
+}
+
 var routes = []Route{
 	{ID: "route1", Name: "Route 1", Description: "Uma rota tranquila para começar sua jornada.", UnlockLevel: 1, MinLevel: 1, MaxLevel: 5, PokemonIDs: []int{16, 19, 21, 43, 25}},
 	{ID: "route2", Name: "Route 2", Description: "Uma rota com Pokémon um pouco mais fortes.", UnlockLevel: 3, MinLevel: 3, MaxLevel: 7, PokemonIDs: []int{16, 19, 21, 25, 52}},
