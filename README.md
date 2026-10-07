@@ -4,12 +4,12 @@ A small Pokémon RPG bot for Discord, built in Go.
 
 ## MVP
 
-- `/start` — creates your trainer and chooses Bulbasaur, Charmander or Squirtle
-- `/profile` — trainer level, XP, coins and collection size
+- `/iniciar` — creates your trainer and chooses Bulbasaur, Charmander or Squirtle
+- `/perfil` — trainer level, XP, coins and collection size
 - `/pokemon` — lists your Pokémon
-- `/hunt` — generates a wild encounter
-- `/catch` — attempts capture
-- `/flee` — ends the encounter
+- `/procurar` — generates a wild encounter
+- `/capturar` — attempts capture
+- `/fugir` — ends the encounter
 - Buttons for capture/flee
 - Local JSON persistence in `data/players.json`
 - Pokémon sprites from PokeAPI
@@ -41,7 +41,7 @@ If `DISCORD_GUILD_ID` is omitted, commands are registered globally.
 /hunt
 ```
 
-Then click **🎯 Capturar** or use `/catch`.
+Then click **🎯 Capturar** or use `/capturar`.
 
 After a successful capture:
 
