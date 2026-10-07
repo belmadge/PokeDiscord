@@ -103,7 +103,7 @@ func onReady(s *discordgo.Session, r *discordgo.Ready) {
 func registerCommands(s *discordgo.Session) error {
 	commands := []*discordgo.ApplicationCommand{
 		{
-			Name: "start", Description: "Comece sua jornada Pokémon",
+			Name: "iniciar", Description: "Comece sua jornada Pokémon",
 			Options: []*discordgo.ApplicationCommandOption{{
 				Type: discordgo.ApplicationCommandOptionString,
 				Name: "starter", Description: "Escolha seu Pokémon inicial", Required: false,
@@ -114,11 +114,11 @@ func registerCommands(s *discordgo.Session) error {
 				},
 			}},
 		},
-		{Name: "profile", Description: "Veja seu perfil de treinador"},
+		{Name: "perfil", Description: "Veja seu perfil de treinador"},
 		{Name: "pokemon", Description: "Veja seus Pokémon"},
-		{Name: "hunt", Description: "Procure um Pokémon selvagem"},
-		{Name: "catch", Description: "Tente capturar o Pokémon encontrado"},
-		{Name: "flee", Description: "Fuja do encontro atual"},
+		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
+		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
+		{Name: "fugir", Description: "Fuja do encontro atual"},
 	}
 	guildID := strings.TrimSpace(os.Getenv("DISCORD_GUILD_ID"))
 	if guildID == "" {
@@ -154,17 +154,17 @@ func onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	switch i.ApplicationCommandData().Name {
-	case "start":
+	case "iniciar":
 		handleStart(s, i)
-	case "profile":
+	case "perfil":
 		handleProfile(s, i)
 	case "pokemon":
 		handlePokemon(s, i)
-	case "hunt":
+	case "procurar":
 		handleHunt(s, i)
-	case "catch":
+	case "capturar":
 		handleCatch(s, i)
-	case "flee":
+	case "fugir":
 		handleFlee(s, i)
 	}
 }
@@ -179,7 +179,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	store.mu.Lock()
 	if _, exists := store.Players[user.ID]; exists {
 		store.mu.Unlock()
-		respond(s, i, "Você já começou sua jornada! Use `/profile`.")
+		respond(s, i, "Você já começou sua jornada! Use `/perfil`.")
 		return
 	}
 	p := Player{
@@ -197,7 +197,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Color: 0xF2A900,
 		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: spriteURL(pk.ID)},
 		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Próximo passo", Value: "Use `/hunt` para procurar um Pokémon selvagem."},
+			{Name: "Próximo passo", Value: "Use `/procurar` para procurar um Pokémon selvagem."},
 			{Name: "💰 Coins", Value: "100"},
 		},
 	})
@@ -206,7 +206,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p, ok := getPlayer(iUser(i).ID)
 	if !ok {
-		respond(s, i, "Você ainda não começou. Use `/start` primeiro.")
+		respond(s, i, "Você ainda não começou. Use `/iniciar` primeiro.")
 		return
 	}
 	respondEmbed(s, i, &discordgo.MessageEmbed{
@@ -223,7 +223,7 @@ func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p, ok := getPlayer(iUser(i).ID)
 	if !ok {
-		respond(s, i, "Você ainda não começou. Use `/start` primeiro.")
+		respond(s, i, "Você ainda não começou. Use `/iniciar` primeiro.")
 		return
 	}
 	lines := make([]string, 0, len(p.Pokemon))
@@ -244,12 +244,12 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	store.mu.Lock()
 	if _, ok := store.Players[userID]; !ok {
 		store.mu.Unlock()
-		respond(s, i, "Você ainda não começou. Use `/start` primeiro.")
+		respond(s, i, "Você ainda não começou. Use `/iniciar` primeiro.")
 		return
 	}
 	if e, ok := store.Encounters[userID]; ok && time.Now().Before(e.ExpiresAt) {
 		store.mu.Unlock()
-		respond(s, i, "Você já está em um encontro! Use `/catch` ou `/flee`.")
+		respond(s, i, "Você já está em um encontro! Use `/capturar` ou `/fugir`.")
 		return
 	}
 
@@ -281,7 +281,7 @@ func handleCatch(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, "🎉 **Capturado!** O Pokémon entrou para sua coleção. Use `/pokemon` para vê-lo.")
 		return
 	}
-	respond(s, i, "❌ Não há um Pokémon válido para capturar agora, ou a captura falhou. Use `/hunt` para tentar novamente.")
+	respond(s, i, "❌ Não há um Pokémon válido para capturar agora, ou a captura falhou. Use `/procurar` para tentar novamente.")
 }
 
 func handleFlee(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -299,13 +299,13 @@ func handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 	switch parts[0] {
-	case "catch":
+	case "capturar":
 		if catchPokemon(iUser(i).ID) {
 			respond(s, i, "🎉 **Capturado!** O Pokémon entrou para sua coleção.")
 		} else {
 			respond(s, i, "❌ O encontro expirou, já foi resolvido ou a captura falhou.")
 		}
-	case "flee":
+	case "fugir":
 		if flee(iUser(i).ID) {
 			respond(s, i, "🏃 Você fugiu do encontro.")
 		} else {
