@@ -713,6 +713,7 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 		rewardXP := 15 + battle.Opponent.Level*5
 		p.Coins += rewardCoins
 		p.ColiseumWins++
+		battle.PlayerPokemon.HP = battle.PlayerHP
 		p.Pokemon = addPokemonXP(p.Pokemon, battle.PlayerPokemon, rewardXP)
 		store.Players[userID] = p
 		delete(store.Battles, userID)
