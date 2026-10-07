@@ -1060,6 +1060,25 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 	editBattle(s, i, battle, strings.Join(messages, "\n"))
 }
 
+func editLeagueBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, stage int, logText string) {
+	trainer:=leagueTrainers[stage]
+	content:=logText
+	components:=battleComponents(battle)
+	_,err:=s.InteractionResponseEdit(i.Interaction,&discordgo.WebhookEdit{
+		Content:&content,
+		Embeds:&[]*discordgo.MessageEmbed{{
+			Title:fmt.Sprintf("🏆 %s • Desafio %d/5",trainer.Name,stage+1),
+			Description:fmt.Sprintf("**%s** enfrenta **%s**!",battle.PlayerPokemon.Name,battle.Opponent.Name),
+			Color:0x9B59B6,
+			Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(battle.Opponent.ID)},
+			Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},
+			Fields:battleFields(battle),
+		}},
+		Components:&components,
+	})
+	if err!=nil { log.Printf("edit league battle: %v",err) }
+}
+
 func battleFields(battle Battle) []*discordgo.MessageEmbedField {
 	moves := movesFor(battle.PlayerPokemon)
 	return []*discordgo.MessageEmbedField{
@@ -1150,7 +1169,10 @@ func pokemonType(id int) string {
 		52: "Normal", 53: "Normal",
 		58: "Fogo", 64: "Psíquico", 65: "Psíquico",
 		70: "Planta/Veneno", 78: "Fogo",
-		89: "Veneno", 95: "Pedra/Terra", 100: "Elétrico",
+		68: "Lutador", 80: "Água/Psíquico", 87: "Água/Gelo", 91: "Água/Gelo",
+		89: "Veneno", 93: "Fantasma/Veneno", 94: "Fantasma/Veneno", 95: "Pedra/Terra",
+		106: "Lutador", 107: "Lutador", 124: "Gelo/Psíquico", 130: "Água/Voador",
+		142: "Pedra/Voador", 148: "Dragão", 149: "Dragão/Voador", 100: "Elétrico",
 		109: "Veneno", 110: "Veneno", 111: "Terra/Pedra",
 		112: "Terra/Pedra", 114: "Planta", 120: "Água", 121: "Água", 122: "Psíquico/Fada",
 		144: "Gelo/Voador", 145: "Elétrico/Voador", 146: "Fogo/Voador",
@@ -1180,6 +1202,24 @@ func movesFor(pk Pokemon) []Move {
 		return []Move{{"Investida", "Normal", 40}, {"Rajada", "Voador", 45}, {"Ataque de Asa", "Voador", 60}}
 	case "Pedra/Terra":
 		return []Move{{"Investida", "Normal", 40}, {"Arremesso de Pedra", "Pedra", 45}, {"Deslizamento", "Pedra", 60}}
+	case "Água/Gelo":
+		return []Move{{"Investida", "Normal", 40}, {"Jato d'Água", "Água", 45}, {"Raio de Gelo", "Gelo", 60}}
+	case "Gelo/Psíquico":
+		return []Move{{"Confusão", "Psíquico", 40}, {"Raio de Gelo", "Gelo", 45}, {"Psíquico", "Psíquico", 60}}
+	case "Fantasma/Veneno":
+		return []Move{{"Lambida", "Fantasma", 40}, {"Bola Sombria", "Fantasma", 45}, {"Onda Venenosa", "Veneno", 60}}
+	case "Lutador":
+		return []Move{{"Investida", "Normal", 40}, {"Golpe Karate", "Lutador", 45}, {"Chute", "Lutador", 60}}
+	case "Água/Voador":
+		return []Move{{"Investida", "Normal", 40}, {"Jato d'Água", "Água", 45}, {"Ataque de Asa", "Voador", 60}}
+	case "Pedra/Voador":
+		return []Move{{"Investida", "Normal", 40}, {"Arremesso de Pedra", "Pedra", 45}, {"Ataque de Asa", "Voador", 60}}
+	case "Dragão":
+		return []Move{{"Investida", "Normal", 40}, {"Garra de Dragão", "Dragão", 45}, {"Fúria do Dragão", "Dragão", 60}}
+	case "Dragão/Voador":
+		return []Move{{"Investida", "Normal", 40}, {"Garra de Dragão", "Dragão", 45}, {"Ataque de Asa", "Voador", 60}}
+	case "Fantasma":
+		return []Move{{"Lambida", "Fantasma", 40}, {"Bola Sombria", "Fantasma", 45}, {"Maldição", "Fantasma", 60}}
 	case "Veneno":
 		return []Move{{"Investida", "Normal", 40}, {"Picada Venenosa", "Veneno", 45}, {"Ácido", "Veneno", 60}}
 	case "Fada":
@@ -1699,6 +1739,10 @@ func newPokemonByName(name string) Pokemon {
 
 func spriteURL(id int) string {
 	return fmt.Sprintf("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png", id)
+}
+
+func officialArtworkURL(id int) string {
+	return fmt.Sprintf("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/%d.png", id)
 }
 
 func rarity(pk Pokemon) string {
