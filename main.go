@@ -21,10 +21,17 @@ const dataFile = "data/players.json"
 type Pokemon struct {
 	ID       int    `json:"id"`
 	Name     string `json:"name"`
+	Type     string `json:"type"`
 	Level    int    `json:"level"`
 	XP       int    `json:"xp"`
 	XPToNext int    `json:"xp_to_next"`
 	Shiny    bool   `json:"shiny"`
+}
+
+type Move struct {
+	Name   string
+	Type   string
+	Power  int
 }
 
 type Player struct {
@@ -548,7 +555,7 @@ func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	respondBattle(s, i, battle)
 }
 
-func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
+func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, userID string, moveIndex int) {
 	store.mu.Lock()
 	battle, ok := store.Battles[userID]
 	if !ok {
@@ -557,9 +564,17 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 		return
 	}
 
-	playerDamage := battleDamage(battle.PlayerPokemon)
+	moves := movesFor(battle.PlayerPokemon)
+	if moveIndex < 0 || moveIndex >= len(moves) {
+		store.mu.Unlock()
+		editComponent(s, i, "❌ Golpe inválido.")
+		return
+	}
+	move := moves[moveIndex]
+	playerDamage, multiplier := calculateDamage(battle.PlayerPokemon, battle.Opponent, move)
 	battle.OpponentHP -= playerDamage
-	messages := []string{fmt.Sprintf("⚔️ **%s causou %d de dano!**", battle.PlayerPokemon.Name, playerDamage)}
+	effectText := effectivenessText(multiplier)
+	messages := []string{fmt.Sprintf("⚔️ **%s usou %s!** %d de dano%s", battle.PlayerPokemon.Name, move.Name, playerDamage, effectText)}
 
 	if battle.OpponentHP <= 0 {
 		p := store.Players[userID]
@@ -577,9 +592,11 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 		return
 	}
 
-	opponentDamage := battleDamage(battle.Opponent)
+	opponentMoves := movesFor(battle.Opponent)
+	opponentMove := opponentMoves[rand.Intn(len(opponentMoves))]
+	opponentDamage, opponentMultiplier := calculateDamage(battle.Opponent, battle.PlayerPokemon, opponentMove)
 	battle.PlayerHP -= opponentDamage
-	messages = append(messages, fmt.Sprintf("💥 **%s causou %d de dano!**", battle.Opponent.Name, opponentDamage))
+	messages = append(messages, fmt.Sprintf("💥 **%s usou %s!** %d de dano%s", battle.Opponent.Name, opponentMove.Name, opponentDamage, effectivenessText(opponentMultiplier)))
 
 	if battle.PlayerHP <= 0 {
 		delete(store.Battles, userID)
@@ -593,36 +610,44 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 	editBattle(s, i, battle, strings.Join(messages, "\n"))
 }
 
+func battleFields(battle Battle) []*discordgo.MessageEmbedField {
+	moves := movesFor(battle.PlayerPokemon)
+	return []*discordgo.MessageEmbedField{
+		{Name: "🧑‍🎤 Seu Pokémon", Value: fmt.Sprintf("%s — Lv. %d\n🏷️ Tipo: %s\n❤️ HP: %d/%d", battle.PlayerPokemon.Name, battle.PlayerPokemon.Level, battle.PlayerPokemon.Type, battle.PlayerHP, battleHP(battle.PlayerPokemon)), Inline: true},
+		{Name: "👾 Adversário", Value: fmt.Sprintf("%s — Lv. %d\n🏷️ Tipo: %s\n❤️ HP: %d/%d", battle.Opponent.Name, battle.Opponent.Level, battle.Opponent.Type, battle.OpponentHP, battleHP(battle.Opponent)), Inline: true},
+		{Name: "🎯 Seus golpes", Value: fmt.Sprintf("1. **%s** (%s)\n2. **%s** (%s)\n3. **%s** (%s)", moves[0].Name, moves[0].Type, moves[1].Name, moves[1].Type, moves[2].Name, moves[2].Type)},
+	}
+}
+
+func battleComponents(battle Battle) []discordgo.MessageComponent {
+	return []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+		discordgo.Button{CustomID: "golpe0:" + battle.OwnerID, Label: "1️⃣ " + movesFor(battle.PlayerPokemon)[0].Name, Style: discordgo.DangerButton},
+		discordgo.Button{CustomID: "golpe1:" + battle.OwnerID, Label: "2️⃣ " + movesFor(battle.PlayerPokemon)[1].Name, Style: discordgo.PrimaryButton},
+		discordgo.Button{CustomID: "golpe2:" + battle.OwnerID, Label: "3️⃣ " + movesFor(battle.PlayerPokemon)[2].Name, Style: discordgo.SuccessButton},
+	}}}
+}
+
 func respondBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle) {
 	respondEmbedWithComponents(s, i, &discordgo.MessageEmbed{
 		Title: "⚔️ Coliseu",
 		Description: fmt.Sprintf("**%s** enfrenta **%s**!", battle.PlayerPokemon.Name, battle.Opponent.Name),
 		Color: 0xED4245,
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "🧑‍🎤 Seu Pokémon", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.PlayerPokemon.Name, battle.PlayerPokemon.Level, battle.PlayerHP, battleHP(battle.PlayerPokemon)), Inline: true},
-			{Name: "👾 Adversário", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.Opponent.Name, battle.Opponent.Level, battle.OpponentHP, battleHP(battle.Opponent)), Inline: true},
-		},
-	}, []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.Button{CustomID: "batalhar:" + battle.OwnerID, Label: "⚔️ Atacar", Style: discordgo.DangerButton},
-	}}})
+		Fields: battleFields(battle),
+	}, battleComponents(battle))
 }
 
 func editBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, logText string) {
 	content := logText
-	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.Button{CustomID: "batalhar:" + battle.OwnerID, Label: "⚔️ Atacar", Style: discordgo.DangerButton},
-	}}}
+	components := battleComponents(battle)
 	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: &content,
 		Embeds: &[]*discordgo.MessageEmbed{{
 			Title: "⚔️ Coliseu",
 			Description: fmt.Sprintf("**%s** vs **%s**", battle.PlayerPokemon.Name, battle.Opponent.Name),
 			Color: 0xED4245,
-			Fields: []*discordgo.MessageEmbedField{
-				{Name: "🧑‍🎤 Seu Pokémon", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.PlayerPokemon.Name, battle.PlayerPokemon.Level, battle.PlayerHP, battleHP(battle.PlayerPokemon)), Inline: true},
-				{Name: "👾 Adversário", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.Opponent.Name, battle.Opponent.Level, battle.OpponentHP, battleHP(battle.Opponent)), Inline: true},
-			},
-		}}, Components: &components,
+			Fields: battleFields(battle),
+		}},
+		Components: &components,
 	})
 	if err != nil {
 		log.Printf("edit battle: %v", err)
@@ -641,6 +666,7 @@ func randomOpponent(trainerLevel int) Pokemon {
 	pk.XP = 0
 	pk.XPToNext = xpToNext(pk.Level)
 	pk.Shiny = false
+	pk.Type = pokemonType(pk.ID)
 	return pk
 }
 
@@ -650,6 +676,109 @@ func battleHP(pk Pokemon) int {
 
 func battleDamage(pk Pokemon) int {
 	return 5 + pk.Level*2 + rand.Intn(6)
+}
+
+func pokemonType(id int) string {
+	types := map[int]string{
+		1: "Planta", 2: "Planta", 3: "Planta",
+		4: "Fogo", 5: "Fogo", 6: "Fogo",
+		7: "Água", 8: "Água", 9: "Água",
+		10: "Inseto", 11: "Inseto", 12: "Inseto",
+		13: "Inseto", 14: "Inseto", 15: "Inseto",
+		16: "Normal/Voador", 17: "Normal/Voador", 18: "Normal/Voador",
+		19: "Normal", 20: "Normal", 21: "Normal/Voador", 22: "Normal/Voador",
+		25: "Elétrico", 29: "Veneno", 32: "Veneno",
+		35: "Fada", 41: "Veneno/Voador", 42: "Veneno/Voador",
+		43: "Planta/Veneno", 52: "Normal", 74: "Pedra/Terra",
+		75: "Pedra/Terra", 102: "Planta/Psíquico", 123: "Inseto/Voador", 128: "Normal",
+	}
+	if t, ok := types[id]; ok {
+		return t
+	}
+	return "Normal"
+}
+
+func movesFor(pk Pokemon) []Move {
+	switch pk.Type {
+	case "Fogo":
+		return []Move{{"Arranhão", "Normal", 40}, {"Brasa", "Fogo", 45}, {"Corte de Fogo", "Fogo", 60}}
+	case "Água":
+		return []Move{{"Investida", "Normal", 40}, {"Jato d'Água", "Água", 45}, {"Pulso d'Água", "Água", 60}}
+	case "Planta", "Planta/Veneno":
+		return []Move{{"Investida", "Normal", 40}, {"Chicote de Vinha", "Planta", 45}, {"Folha Navalha", "Planta", 60}}
+	case "Elétrico":
+		return []Move{{"Investida", "Normal", 40}, {"Choque do Trovão", "Elétrico", 45}, {"Faísca", "Elétrico", 60}}
+	case "Inseto", "Inseto/Voador":
+		return []Move{{"Investida", "Normal", 40}, {"Picada", "Inseto", 45}, {"Corte Furioso", "Inseto", 60}}
+	case "Voador", "Normal/Voador", "Veneno/Voador":
+		return []Move{{"Investida", "Normal", 40}, {"Rajada", "Voador", 45}, {"Ataque de Asa", "Voador", 60}}
+	case "Pedra/Terra":
+		return []Move{{"Investida", "Normal", 40}, {"Arremesso de Pedra", "Pedra", 45}, {"Deslizamento", "Pedra", 60}}
+	case "Veneno":
+		return []Move{{"Investida", "Normal", 40}, {"Picada Venenosa", "Veneno", 45}, {"Ácido", "Veneno", 60}}
+	case "Fada":
+		return []Move{{"Tapa", "Normal", 40}, {"Vento de Fada", "Fada", 45}, {"Brilho Mágico", "Fada", 60}}
+	case "Planta/Psíquico":
+		return []Move{{"Confusão", "Psíquico", 40}, {"Absorver", "Planta", 45}, {"Psíquico", "Psíquico", 60}}
+	default:
+		return []Move{{"Investida", "Normal", 40}, {"Ataque Rápido", "Normal", 45}, {"Golpe Forte", "Normal", 60}}
+	}
+}
+
+func calculateDamage(attacker Pokemon, defender Pokemon, move Move) (int, float64) {
+	base := float64(move.Power) + float64(attacker.Level*2)
+	multiplier := typeMultiplier(move.Type, defender.Type)
+	damage := int(base/10*multiplier) + rand.Intn(6)
+	if damage < 1 {
+		damage = 1
+	}
+	return damage, multiplier
+}
+
+func typeMultiplier(moveType, defenderType string) float64 {
+	// Regras principais do ciclo e algumas relações clássicas.
+	parts := strings.Split(defenderType, "/")
+	multiplier := 1.0
+	for _, defender := range parts {
+		m := 1.0
+		switch moveType {
+		case "Fogo":
+			if defender == "Planta" || defender == "Inseto" { m = 2 }
+			if defender == "Água" || defender == "Pedra" { m = 0.5 }
+		case "Água":
+			if defender == "Fogo" || defender == "Pedra" { m = 2 }
+			if defender == "Planta" { m = 0.5 }
+		case "Planta":
+			if defender == "Água" || defender == "Pedra" { m = 2 }
+			if defender == "Fogo" || defender == "Inseto" { m = 0.5 }
+		case "Elétrico":
+			if defender == "Água" || defender == "Voador" { m = 2 }
+			if defender == "Planta" { m = 0.5 }
+		case "Inseto":
+			if defender == "Planta" || defender == "Psíquico" { m = 2 }
+			if defender == "Fogo" || defender == "Pedra" { m = 0.5 }
+		case "Pedra":
+			if defender == "Fogo" || defender == "Inseto" || defender == "Voador" { m = 2 }
+		case "Veneno":
+			if defender == "Planta" || defender == "Fada" { m = 2 }
+		case "Fada":
+			if defender == "Veneno" { m = 0.5 }
+		case "Psíquico":
+			if defender == "Veneno" { m = 2 }
+		}
+		multiplier *= m
+	}
+	return multiplier
+}
+
+func effectivenessText(multiplier float64) string {
+	if multiplier >= 2 {
+		return " — **Super eficaz!** 💥"
+	}
+	if multiplier > 0 && multiplier < 1 {
+		return " — **Pouco eficaz...**"
+	}
+	return ""
 }
 
 func addPokemonXP(pokemon []Pokemon, target Pokemon, amount int) []Pokemon {
@@ -774,7 +903,16 @@ func handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	case "batalhar":
 		deferComponent(s, i)
-		handleBattleAttack(s, i, userID)
+		handleBattleAttack(s, i, userID, 0)
+	case "golpe0":
+		deferComponent(s, i)
+		handleBattleAttack(s, i, userID, 0)
+	case "golpe1":
+		deferComponent(s, i)
+		handleBattleAttack(s, i, userID, 1)
+	case "golpe2":
+		deferComponent(s, i)
+		handleBattleAttack(s, i, userID, 2)
 	}
 }
 func catchPokemon(userID string) (Pokemon, bool) {
