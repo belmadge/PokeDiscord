@@ -133,6 +133,11 @@ var gyms = []Gym{
 	{ID:"pedra", Name:"Ginásio de Pewter", Leader:"Brock", Type:"Pedra", Badge:"🌑 Insígnia Boulder", UnlockLevel:3, RewardCoins:100, Pokemon:[]Pokemon{{ID:74,Name:"Geodude",Level:5,XPToNext:30},{ID:95,Name:"Onix",Level:7,XPToNext:30}}},
 	{ID:"agua", Name:"Ginásio de Cerulean", Leader:"Misty", Type:"Água", Badge:"💧 Insígnia Cascade", UnlockLevel:6, RewardCoins:150, Pokemon:[]Pokemon{{ID:120,Name:"Staryu",Level:8,XPToNext:30},{ID:121,Name:"Starmie",Level:10,XPToNext:30}}},
 	{ID:"eletrico", Name:"Ginásio de Vermilion", Leader:"Lt. Surge", Type:"Elétrico", Badge:"⚡ Insígnia Thunder", UnlockLevel:9, RewardCoins:200, Pokemon:[]Pokemon{{ID:100,Name:"Voltorb",Level:11,XPToNext:30},{ID:26,Name:"Raichu",Level:13,XPToNext:30}}},
+	{ID:"planta", Name:"Ginásio de Celadon", Leader:"Erika", Type:"Planta", Badge:"🌈 Insígnia Rainbow", UnlockLevel:12, RewardCoins:250, Pokemon:[]Pokemon{{ID:70,Name:"Weepinbell",Level:14,XPToNext:30},{ID:45,Name:"Vileplume",Level:16,XPToNext:30}}},
+	{ID:"veneno", Name:"Ginásio de Fuchsia", Leader:"Koga", Type:"Veneno", Badge:"🧪 Insígnia Soul", UnlockLevel:15, RewardCoins:300, Pokemon:[]Pokemon{{ID:109,Name:"Koffing",Level:17,XPToNext:30},{ID:110,Name:"Weezing",Level:19,XPToNext:30}}},
+	{ID:"psiquico", Name:"Ginásio de Saffron", Leader:"Sabrina", Type:"Psíquico", Badge:"🧠 Insígnia Marsh", UnlockLevel:18, RewardCoins:350, Pokemon:[]Pokemon{{ID:64,Name:"Kadabra",Level:20,XPToNext:30},{ID:65,Name:"Alakazam",Level:22,XPToNext:30}}},
+	{ID:"fogo", Name:"Ginásio de Cinnabar", Leader:"Blaine", Type:"Fogo", Badge:"🔥 Insígnia Volcano", UnlockLevel:21, RewardCoins:400, Pokemon:[]Pokemon{{ID:58,Name:"Growlithe",Level:23,XPToNext:30},{ID:78,Name:"Rapidash",Level:25,XPToNext:30}}},
+	{ID:"terra", Name:"Ginásio de Viridian", Leader:"Giovanni", Type:"Terra", Badge:"🌍 Insígnia Earth", UnlockLevel:24, RewardCoins:500, Pokemon:[]Pokemon{{ID:111,Name:"Rhyhorn",Level:26,XPToNext:30},{ID:112,Name:"Rhydon",Level:28,XPToNext:30}}},
 }
 
 var routes = []Route{
@@ -350,7 +355,7 @@ func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			{Name: "💰 Coins", Value: strconv.Itoa(p.Coins), Inline: true},
 			{Name: "📦 Pokémon", Value: strconv.Itoa(len(p.Pokemon)), Inline: true},
 			{Name: "🏆 Coliseu", Value: strconv.Itoa(p.ColiseumWins) + " vitórias", Inline: true},
-			{Name: "🏅 Insígnias", Value: strconv.Itoa(len(p.Badges)) + "/3", Inline: true},
+			{Name: "🏅 Insígnias", Value: strconv.Itoa(len(p.Badges)) + "/8", Inline: true},
 		},
 
 	})
@@ -741,8 +746,27 @@ func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	lines := []string{}
 	for n,g := range gyms {
 		status := "🔒 Bloqueado"
-		if p.Level >= g.UnlockLevel { status = "⚔️ Disponível" }
-		for _,b := range p.Badges { if b == g.Badge { status = "✅ Conquistado" } }
+		if p.Level >= g.UnlockLevel {
+			status = "⚔️ Disponível"
+		}
+		if n > 0 {
+			previousBadge := gyms[n-1].Badge
+			hasPrevious := false
+			for _,b := range p.Badges {
+				if b == previousBadge {
+					hasPrevious = true
+					break
+				}
+			}
+			if !hasPrevious {
+				status = "🔒 Requer a insígnia anterior"
+			}
+		}
+		for _,b := range p.Badges {
+			if b == g.Badge {
+				status = "✅ Conquistado"
+			}
+		}
 		lines = append(lines, fmt.Sprintf("**%d. %s** — Líder **%s**\n%s · Tipo %s · Requer Lv. %d\n%s",n+1,g.Name,g.Leader,g.Badge,g.Type,g.UnlockLevel,status))
 	}
 	respondEmbed(s,i,&discordgo.MessageEmbed{Title:"🏟️ Ginásios",Description:strings.Join(lines,"\n\n")+"\n\nUse /ginasio numero:N para desafiar.",Color:0xF1C40F})
@@ -757,6 +781,21 @@ func handleGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	store.mu.Lock(); p,ok := store.Players[uid]
 	if !ok { store.mu.Unlock(); respond(s,i,"Você ainda não começou. Use /iniciar primeiro."); return }
 	if p.Level<g.UnlockLevel { store.mu.Unlock(); respond(s,i,fmt.Sprintf("🔒 Você precisa estar no nível %d.",g.UnlockLevel)); return }
+	if n > 0 {
+		previousBadge := gyms[n-1].Badge
+		hasPrevious := false
+		for _,b := range p.Badges {
+			if b == previousBadge {
+				hasPrevious = true
+				break
+			}
+		}
+		if !hasPrevious {
+			store.mu.Unlock()
+			respond(s,i,fmt.Sprintf("🔒 Você precisa conquistar **%s** antes de desafiar este ginásio.", previousBadge))
+			return
+		}
+	}
 	for _,b := range p.Badges { if b==g.Badge { store.mu.Unlock(); respond(s,i,"✅ Você já conquistou essa insígnia."); return } }
 	if _,active:=store.Battles[uid]; active { store.mu.Unlock(); respond(s,i,"⚔️ Você já está em uma batalha."); return }
 	if len(p.Team)==0 { store.mu.Unlock(); respond(s,i,"❌ Monte sua equipe com /equipe."); return }
@@ -998,6 +1037,11 @@ func pokemonType(id int) string {
 		41: "Veneno/Voador", 42: "Veneno/Voador",
 		43: "Planta/Veneno", 44: "Planta/Veneno", 45: "Planta/Veneno",
 		52: "Normal", 53: "Normal",
+		58: "Fogo", 64: "Psíquico", 65: "Psíquico",
+		70: "Planta/Veneno", 78: "Fogo",
+		89: "Veneno", 109: "Veneno", 110: "Veneno",
+		111: "Terra/Pedra", 112: "Terra/Pedra",
+		114: "Planta", 122: "Psíquico/Fada",
 		74: "Pedra/Terra", 75: "Pedra/Terra",
 		102: "Planta/Psíquico", 123: "Inseto/Voador", 128: "Normal",
 	}
