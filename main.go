@@ -1055,21 +1055,28 @@ func generateGymsCard(p Player) ([]byte, error) {
 }
 
 func respondGymCard(s *discordgo.Session, i *discordgo.InteractionCreate, p Player) {
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	}); err != nil {
+		log.Printf("defer gyms card: %v", err)
+		return
+	}
+
 	img, err := generateGymsCard(p)
 	if err != nil {
 		log.Printf("generate gyms card: %v", err)
-		respond(s, i, "Não consegui gerar o painel dos ginásios.")
+		_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: "Não consegui gerar o painel dos ginásios.",
+		})
 		return
 	}
-	_, err = s.InteractionResponse(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Files: []*discordgo.File{{Name: "ginasios.png", Content: bytes.NewReader(img), ContentType: "image/png"}},
-			Content: "Use /ginasio numero:N para desafiar um ginásio.",
-		},
+
+	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Content: "Use /ginasio numero:N para desafiar um ginásio.",
+		Files: []*discordgo.File{{Name: "ginasios.png", Content: bytes.NewReader(img), ContentType: "image/png"}},
 	})
 	if err != nil {
-		log.Printf("respond gyms card: %v", err)
+		log.Printf("followup gyms card: %v", err)
 	}
 }
 
