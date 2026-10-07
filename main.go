@@ -146,6 +146,7 @@ func registerCommands(s *discordgo.Session) error {
 		},
 		{Name: "perfil", Description: "Veja seu perfil de treinador"},
 		{Name: "pokemon", Description: "Veja seus Pokémon"},
+		{Name: "pokedex", Description: "Veja sua Pokédex e o progresso das rotas"},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
@@ -191,6 +192,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleProfile(s, i)
 	case "pokemon":
 		handlePokemon(s, i)
+	case "pokedex":
+		handlePokedex(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "rotas":
@@ -270,6 +273,65 @@ func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 	respondEmbed(s, i, &discordgo.MessageEmbed{
 		Title: "📦 Seus Pokémon", Description: strings.Join(lines, "\n"), Color: 0x57F287,
+	})
+}
+
+func handlePokedex(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := iUser(i).ID
+	player, ok := getPlayer(userID)
+	if !ok {
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+
+	caught := make(map[int]bool)
+	for _, pk := range player.Pokemon {
+		caught[pk.ID] = true
+	}
+
+	fields := make([]*discordgo.MessageEmbedField, 0, len(routes))
+	for _, route := range routes {
+		unique := make(map[int]bool)
+		captured := 0
+		for _, id := range route.PokemonIDs {
+			if unique[id] {
+				continue
+			}
+			unique[id] = true
+			if caught[id] {
+				captured++
+			}
+		}
+
+		lines := make([]string, 0, len(unique))
+		for _, id := range route.PokemonIDs {
+			if !unique[id] {
+				continue
+			}
+			pk := pokemonByID(id)
+			if caught[id] {
+				lines = append(lines, fmt.Sprintf("✅ **%s**", pk.Name))
+			} else {
+				lines = append(lines, fmt.Sprintf("⬜ %s", pk.Name))
+			}
+		}
+
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: route.Name,
+			Value: fmt.Sprintf("**%d/%d capturados**\n%s", captured, len(unique), strings.Join(lines, " • ")),
+		})
+	}
+
+	uniqueAll := make(map[int]bool)
+	for _, pk := range player.Pokemon {
+		uniqueAll[pk.ID] = true
+	}
+
+	respondEmbed(s, i, &discordgo.MessageEmbed{
+		Title: "📖 Pokédex",
+		Description: fmt.Sprintf("**%d espécies descobertas** • **%d Pokémon capturados**\nComplete as rotas para preencher sua Pokédex.", len(uniqueAll), len(player.Pokemon)),
+		Color: 0x5865F2,
+		Fields: fields,
 	})
 }
 
