@@ -1077,7 +1077,7 @@ func respondGymCard(s *discordgo.Session, i *discordgo.InteractionCreate, p Play
 
 	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: "Use /ginasio numero:N para desafiar um ginásio.",
-		Files: []*discordgo.File{{Name: "ginasios.png", Content: bytes.NewReader(img), ContentType: "image/png"}},
+		Files:   []*discordgo.File{{Name: "ginasios.png", Content: bytes.NewReader(img), ContentType: "image/png"}},
 	})
 	if err != nil {
 		log.Printf("followup gyms card: %v", err)
