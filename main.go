@@ -1031,8 +1031,12 @@ func generateGymsCard(p Player) ([]byte, error) {
 
 		gymText(bg, fmt.Sprintf("%d. %s", n+1, strings.TrimPrefix(g.Name, "Ginásio de ")), x+20, y+150, 22, color.White, true)
 		gymText(bg, g.Leader, x+20, y+180, 18, color.RGBA{R: 215, G: 225, B: 240, A: 255}, true)
-		gymText(bg, fmt.Sprintf("%s  %s", typeEmoji(g.Type), g.Type), x+20, y+207, 17, color.RGBA{R: 200, G: 210, B: 225, A: 255}, false)
-		gymText(bg, fmt.Sprintf("Insígnia: %s", strings.TrimSpace(strings.TrimLeft(g.Badge, "🌑💧⚡🌈🧪🧠🔥🌍"))), x+20, y+234, 15, color.RGBA{R: 175, G: 190, B: 210, A: 255}, false)
+		gymText(bg, g.Type, x+20, y+207, 17, accent, true)
+		badgeName := g.Badge
+		if parts := strings.SplitN(g.Badge, " ", 2); len(parts) == 2 {
+			badgeName = parts[1]
+		}
+		gymText(bg, "Insígnia: "+badgeName, x+20, y+234, 15, color.RGBA{R: 175, G: 190, B: 210, A: 255}, false)
 		gymText(bg, fmt.Sprintf("Requer Lv. %d", g.UnlockLevel), x+20, y+264, 16, color.White, false)
 		gymText(bg, fmt.Sprintf("Ace: %s · Lv. %d", ace.Name, ace.Level), x+20, y+289, 16, color.White, false)
 		gymText(bg, fmt.Sprintf("Coins: %d", g.RewardCoins), x+20, y+314, 16, color.RGBA{R: 245, G: 205, B: 90, A: 255}, false)
