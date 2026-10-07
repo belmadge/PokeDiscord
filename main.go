@@ -349,7 +349,10 @@ func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			{Name: "✨ XP", Value: strconv.Itoa(p.XP), Inline: true},
 			{Name: "💰 Coins", Value: strconv.Itoa(p.Coins), Inline: true},
 			{Name: "📦 Pokémon", Value: strconv.Itoa(len(p.Pokemon)), Inline: true},
+			{Name: "🏆 Coliseu", Value: strconv.Itoa(p.ColiseumWins) + " vitórias", Inline: true},
+			{Name: "🏅 Insígnias", Value: strconv.Itoa(len(p.Badges)) + "/3", Inline: true},
 		},
+
 	})
 }
 
@@ -929,12 +932,15 @@ func respondGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate, batt
 func editBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, logText string) {
 	content := logText
 	components := battleComponents(battle)
+	title := "⚔️ Coliseu"
+	color := 0xED4245
+	if battle.GymID != "" { title = "🏟️ Ginásio"; color = 0xF1C40F }
 	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: &content,
 		Embeds: &[]*discordgo.MessageEmbed{{
-			Title: "⚔️ Coliseu",
+			Title: title,
 			Description: fmt.Sprintf("**%s** vs **%s**", battle.PlayerPokemon.Name, battle.Opponent.Name),
-			Color: 0xED4245,
+			Color: color,
 			Fields: battleFields(battle),
 		}},
 		Components: &components,
