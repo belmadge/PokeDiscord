@@ -893,6 +893,51 @@ func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	respondBattle(s, i, battle)
 }
 
+func createLeagueBattle(p Player, stage int) Battle {
+	teamIndex := p.Team[0]
+	chosen := p.Pokemon[teamIndex]
+	chosen.Type = pokemonType(chosen.ID)
+	opponents := leagueTrainers[stage].Pokemon
+	op := opponents[rand.Intn(len(opponents))]
+	op.Type = pokemonType(op.ID)
+	return Battle{
+		OwnerID:p.DiscordID, PlayerPokemon:chosen, Opponent:op,
+		PlayerHP:battleHP(chosen), OpponentHP:battleHP(op),
+		Elite:true, EliteIndex:stage,
+	}
+}
+
+func handleElite(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	p, ok := getPlayer(iUser(i).ID)
+	if !ok { respond(s,i,"Você ainda não começou. Use /iniciar primeiro."); return }
+
+	lines := make([]string,0,len(leagueTrainers))
+	for idx, trainer := range leagueTrainers {
+		status := "🔒 Requer 8 insígnias"
+		if len(p.Badges) >= 8 {
+			if idx < p.LeagueWins { status = "✅ Derrotado" } else if idx == p.LeagueWins { status = "⚔️ Próximo desafio" }
+		}
+		icon := fmt.Sprintf("%d️⃣",idx+1)
+		if trainer.IsChampion { icon = "👑" }
+		lines = append(lines,fmt.Sprintf("%s **%s** · %s · Lv. %d · %s",icon,trainer.Name,trainer.Type,trainer.Pokemon[0].Level,status))
+	}
+
+	description := "Conquiste as 8 insígnias para entrar na Liga Pokémon. Depois, enfrente os 4 membros em sequência e finalmente o Campeão."
+	if p.Champion { description = "👑 **Você é o Campeão!** A Elite Four e o Hall da Fama foram conquistados." }
+	respondEmbed(s,i,&discordgo.MessageEmbed{
+		Title:"🏆 Elite Four • Liga Pokémon",
+		Description:description,
+		Color:0x9B59B6,
+		Fields:[]*discordgo.MessageEmbedField{
+			{Name:"🎖️ Progresso",Value:fmt.Sprintf("%d/5 desafios",p.LeagueWins),Inline:true},
+			{Name:"🏅 Insígnias",Value:fmt.Sprintf("%d/8",len(p.Badges)),Inline:true},
+			{Name:"💰 Grande prêmio",Value:"2.000 Coins + 500 XP",Inline:true},
+		},
+		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(149)},
+		Footer:&discordgo.MessageEmbedFooter{Text:strings.Join(lines,"\n")},
+	})
+}
+
 func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, userID string, moveIndex int) {
 	store.mu.Lock()
 	battle, ok := store.Battles[userID]
@@ -916,6 +961,39 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 
 	if battle.OpponentHP <= 0 {
 		p := store.Players[userID]
+
+		if battle.Elite {
+			stage := battle.EliteIndex
+			rewardCoins := 500 + stage*150
+			rewardXP := 120 + stage*60
+			p.Coins += rewardCoins
+			p.LeagueWins++
+			battle.PlayerPokemon.HP = battle.PlayerHP
+			p.Pokemon = addPokemonXP(p.Pokemon,battle.PlayerPokemon,rewardXP)
+
+			if stage < len(leagueTrainers)-1 {
+				next := stage+1
+				nextBattle := createLeagueBattle(p,next)
+				store.Players[userID]=p
+				store.Battles[userID]=nextBattle
+				if err:=saveStoreLocked(); err!=nil { log.Printf("save league progress: %v",err) }
+				store.mu.Unlock()
+				editLeagueBattle(s,i,nextBattle,next,fmt.Sprintf("🏆 **%s derrotado!** +%d Coins • +%d XP\n\n➡️ Próximo: **%s**",leagueTrainers[stage].Name,rewardCoins,rewardXP,leagueTrainers[next].Name))
+				return
+			}
+
+			p.Champion=true
+			p.Coins+=2000
+			p.XP+=500
+			for p.XP >= p.Level*50 { p.XP-=p.Level*50; p.Level++ }
+			store.Players[userID]=p
+			delete(store.Battles,userID)
+			if err:=saveStoreLocked(); err!=nil { log.Printf("save championship: %v",err) }
+			store.mu.Unlock()
+			editComponent(s,i,fmt.Sprintf("👑 **VOCÊ É O CAMPEÃO!**\n\n%s\n\n🏆 Elite Four concluída!\n💰 +%d Coins\n✨ +%d XP\n💎 Bônus de Campeão: +2.000 Coins\n\n**Hall da Fama desbloqueado!**",strings.Join(messages,"\n"),rewardCoins,rewardXP+500))
+			return
+		}
+
 		rewardCoins := 15 + battle.Opponent.Level*3
 		rewardXP := 15 + battle.Opponent.Level*5
 		gym := findGym(battle.GymID)
@@ -923,23 +1001,21 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 			rewardCoins = gym.RewardCoins
 			rewardXP = 25 + gym.UnlockLevel*5
 			p.Coins += rewardCoins
-			p.Badges = append(p.Badges, gym.Badge)
+			p.Badges = append(p.Badges,gym.Badge)
 		} else {
 			p.Coins += rewardCoins
 			p.ColiseumWins++
 		}
-		battle.PlayerPokemon.HP = battle.PlayerHP
-		p.Pokemon = addPokemonXP(p.Pokemon, battle.PlayerPokemon, rewardXP)
-		store.Players[userID] = p
-		delete(store.Battles, userID)
-		if err := saveStoreLocked(); err != nil {
-			log.Printf("save battle victory: %v", err)
-		}
+		battle.PlayerPokemon.HP=battle.PlayerHP
+		p.Pokemon=addPokemonXP(p.Pokemon,battle.PlayerPokemon,rewardXP)
+		store.Players[userID]=p
+		delete(store.Battles,userID)
+		if err:=saveStoreLocked(); err!=nil { log.Printf("save battle victory: %v",err) }
 		store.mu.Unlock()
 		if gym != nil {
-			editComponent(s, i, fmt.Sprintf("🏆 **Ginásio derrotado!**\n\n%s\n\n🏅 **%s** conquistada!\n💰 **+%d Coins**\n✨ **+%d XP** para %s.", strings.Join(messages, "\n"), gym.Badge, rewardCoins, rewardXP, battle.PlayerPokemon.Name))
+			editComponent(s,i,fmt.Sprintf("🏆 **Ginásio derrotado!**\n\n%s\n\n🏅 **%s** conquistada!\n💰 **+%d Coins**\n✨ **+%d XP** para %s.",strings.Join(messages,"\n"),gym.Badge,rewardCoins,rewardXP,battle.PlayerPokemon.Name))
 		} else {
-			editComponent(s, i, fmt.Sprintf("🏆 **Vitória!**\n\n%s\n💰 **+%d Coins**\n✨ **+%d XP** para %s.", strings.Join(messages, "\n"), rewardCoins, rewardXP, battle.PlayerPokemon.Name))
+			editComponent(s,i,fmt.Sprintf("🏆 **Vitória!**\n\n%s\n💰 **+%d Coins**\n✨ **+%d XP** para %s.",strings.Join(messages,"\n"),rewardCoins,rewardXP,battle.PlayerPokemon.Name))
 		}
 		return
 	}
