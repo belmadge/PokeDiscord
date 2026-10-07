@@ -1233,15 +1233,18 @@ func catchPokemon(userID string) (Pokemon, bool) {
 		delete(store.Encounters, userID)
 		return Pokemon{}, false
 	}
-	captureChance := 70
+	captureChance := captureChanceFor(e.Pokemon)
 	p := store.Players[userID]
 	if !p.ActiveLureUntil.IsZero() && time.Now().Before(p.ActiveLureUntil) {
 		switch p.ActiveLureName {
 		case "Isca":
-			captureChance += 15
+			captureChance += 10
 		case "Super Isca":
-			captureChance += 25
+			captureChance += 18
 		}
+	}
+	if captureChance > 90 {
+		captureChance = 90
 	}
 	if rand.Intn(100) >= captureChance {
 		delete(store.Encounters, userID)
@@ -1401,8 +1404,8 @@ func routeName(id string) string {
 }
 
 func randomPokemonForRoute(route Route, owned []Pokemon) Pokemon {
-	// Prioriza espécies que o treinador ainda não capturou nesta rota.
-	// Depois que completar a lista da rota, os encontros voltam a ser aleatórios.
+	// Prioriza espécies ainda não capturadas, mas respeita a raridade:
+	// comuns aparecem bastante; raros e muito raros aparecem bem menos.
 	available := make([]int, 0, len(route.PokemonIDs))
 	for _, id := range route.PokemonIDs {
 		if !hasPokemonID(owned, id) {
@@ -1413,12 +1416,47 @@ func randomPokemonForRoute(route Route, owned []Pokemon) Pokemon {
 		available = route.PokemonIDs
 	}
 
-	pokemonID := available[rand.Intn(len(available))]
+	pokemonID := weightedPokemonID(available)
 	pk := pokemonByID(pokemonID)
 	pk.Level = route.MinLevel + rand.Intn(route.MaxLevel-route.MinLevel+1)
 	pk.XPToNext = 10 + pk.Level*4
 	pk.Shiny = rand.Intn(100) == 0
 	return pk
+}
+
+func weightedPokemonID(ids []int) int {
+	total := 0
+	for _, id := range ids {
+		total += encounterWeight(id)
+	}
+	if total <= 0 {
+		return ids[rand.Intn(len(ids))]
+	}
+
+	roll := rand.Intn(total)
+	for _, id := range ids {
+		weight := encounterWeight(id)
+		if roll < weight {
+			return id
+		}
+		roll -= weight
+	}
+	return ids[len(ids)-1]
+}
+
+func encounterWeight(id int) int {
+	switch rarityByID(id) {
+	case "Comum":
+		return 70
+	case "Incomum":
+		return 22
+	case "Raro":
+		return 7
+	case "Muito raro":
+		return 1
+	default:
+		return 70
+	}
 }
 
 func hasPokemonID(pokemon []Pokemon, id int) bool {
@@ -1469,12 +1507,49 @@ func spriteURL(id int) string {
 
 func rarity(pk Pokemon) string {
 	if pk.Shiny {
-		return "✨ Shiny!"
+		return "✨ Shiny — extremamente raro"
 	}
-	if pk.Name == "Pikachu" {
-		return "⭐ Raro"
+	return rarityByID(pk.ID)
+}
+
+func rarityByID(id int) string {
+	switch id {
+	case 128, 123:
+		return "Muito raro"
+	case 1, 4, 7, 102:
+		return "Raro"
+	case 25, 35, 52:
+		return "Incomum"
+	default:
+		return "Comum"
 	}
-	return "Comum"
+}
+
+func captureChanceFor(pk Pokemon) int {
+	var chance int
+	switch rarityByID(pk.ID) {
+	case "Comum":
+		chance = 75
+	case "Incomum":
+		chance = 60
+	case "Raro":
+		chance = 42
+	case "Muito raro":
+		chance = 25
+	default:
+		chance = 75
+	}
+
+	if pk.Shiny {
+		chance = 15
+	}
+
+	// Pokémon de níveis mais altos são um pouco mais difíceis de capturar.
+	chance -= (pk.Level - 1) / 4
+	if chance < 5 {
+		chance = 5
+	}
+	return chance
 }
 
 func iUser(i *discordgo.InteractionCreate) *discordgo.User {
