@@ -811,7 +811,7 @@ func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		lines = append(lines, fmt.Sprintf("**%d. %s** — Líder **%s**\n%s · Tipo %s · Requer Lv. %d\n%s",n+1,g.Name,g.Leader,g.Badge,g.Type,g.UnlockLevel,status))
 	}
-	respondEmbed(s,i,&discordgo.MessageEmbed{Title:"🏟️ Ginásios",Description:strings.Join(lines,"\n\n")+"\n\nUse /ginasio numero:N para desafiar.",Color:0xF1C40F})
+	respondEmbed(s,i,&discordgo.MessageEmbed{Title:"🏟️ Ginásios de Kanto",Description:"Conquiste as 8 insígnias para chegar à Liga Pokémon.\n\n"+strings.Join(lines,"\n\n")+"\n\nUse /ginasio numero:N para desafiar.",Color:0xF1C40F,Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(112)}})
 }
 
 func handleGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -1459,6 +1459,7 @@ func handleLegendaries(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	respondEmbed(s, i, &discordgo.MessageEmbed{
 		Title: "🌟 Caçada Lendária",
+		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: officialArtworkURL(150)},
 		Description: "Pokémon lendários não aparecem no encontro comum. Quando você cumprir os requisitos, eles podem surgir aleatoriamente durante /procurar.",
 		Color: 0x9B59B6,
 		Fields: []*discordgo.MessageEmbedField{
