@@ -928,10 +928,10 @@ func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			len(p.Badges),
 			progressBar(len(p.Badges), 8, 8),
 		),
-		Color: 0xF1C40F,
+		Color:     0xF1C40F,
 		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: officialArtworkURL(112)},
-		Fields: fields,
-		Footer: &discordgo.MessageEmbedFooter{Text: "Use /ginasio numero:N • A ordem dos ginásios é obrigatória"},
+		Fields:    fields,
+		Footer:    &discordgo.MessageEmbedFooter{Text: "Use /ginasio numero:N • A ordem dos ginásios é obrigatória"},
 	})
 }
 
