@@ -541,6 +541,7 @@ func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	chosen := player.Pokemon[index]
+	chosen.Type = pokemonType(chosen.ID)
 	opponent := randomOpponent(player.Level)
 	battle := Battle{
 		OwnerID: userID,
@@ -1117,8 +1118,15 @@ func hasPokemonID(pokemon []Pokemon, id int) bool {
 }
 
 func pokemonByID(id int) Pokemon {
-	for _, pk := range pokemonPool { if pk.ID == id { return pk } }
-	return pokemonPool[0]
+	for _, pk := range pokemonPool {
+		if pk.ID == id {
+			pk.Type = pokemonType(pk.ID)
+			return pk
+		}
+	}
+	pk := pokemonPool[0]
+	pk.Type = pokemonType(pk.ID)
+	return pk
 }
 
 func deferComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -1133,10 +1141,13 @@ func editComponent(s *discordgo.Session, i *discordgo.InteractionCreate, content
 func newPokemonByName(name string) Pokemon {
 	for _, pk := range pokemonPool {
 		if strings.EqualFold(pk.Name, name) {
+			pk.Type = pokemonType(pk.ID)
 			return pk
 		}
 	}
-	return pokemonPool[1]
+	pk := pokemonPool[1]
+	pk.Type = pokemonType(pk.ID)
+	return pk
 }
 
 func spriteURL(id int) string {
