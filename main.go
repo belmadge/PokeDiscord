@@ -976,7 +976,7 @@ func gymPaste(dst *image.RGBA, src image.Image, r image.Rectangle) {
 	}
 	resized := image.NewRGBA(r)
 	draw.CatmullRom.Scale(resized, r, src, src.Bounds(), draw.Over, nil)
-	draw.Draw(dst, r, resized, image.Point{}, draw.Over)
+	draw.Draw(dst, r, resized, r.Min, draw.Over)
 }
 
 func gymStatus(p Player, n int, g Gym) string {
