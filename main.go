@@ -48,6 +48,7 @@ type Player struct {
 	ActiveLureUntil time.Time      `json:"active_lure_until"`
 	ActiveLureName  string         `json:"active_lure_name"`
 	ColiseumWins    int            `json:"coliseum_wins"`
+	Team            []int          `json:"team"`
 }
 
 type Route struct {
@@ -187,6 +188,12 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "liga", Description: "Veja sua progressão no Coliseu"},
 		{Name: "ranking", Description: "Veja o ranking de treinadores"},
 		{Name: "curar", Description: "Recupere o HP de todos os seus Pokémon"},
+		{Name: "equipe", Description: "Monte sua equipe de até 6 Pokémon", Options: []*discordgo.ApplicationCommandOption{
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "ver", Description: "Veja sua equipe"},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "adicionar", Description: "Adicione um Pokémon à equipe", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true}}},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "remover", Description: "Remova um Pokémon da equipe", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true}}},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "limpar", Description: "Remova todos os Pokémon da equipe"},
+		}},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
@@ -252,6 +259,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleRanking(s, i)
 	case "curar":
 		handleHeal(s, i)
+	case "equipe":
+		handleTeam(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "rotas":
@@ -281,6 +290,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Pokemon: []Pokemon{newPokemonByName(starter)},
 		CurrentRoute: "route1",
 		Items: map[string]int{"isca": 0, "super_isca": 0},
+		Team: []int{0},
 	}
 	store.Players[user.ID] = p
 	store.mu.Unlock()
@@ -1345,7 +1355,11 @@ func loadStore() error {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	return json.Unmarshal(b, &store.Players)
+	if err := json.Unmarshal(b, &store.Players); err != nil { return err }
+	for id, p := range store.Players {
+		if len(p.Team) == 0 && len(p.Pokemon) > 0 { p.Team = []int{0}; store.Players[id] = p }
+	}
+	return nil
 }
 
 func saveStore() error {
