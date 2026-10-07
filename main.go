@@ -603,12 +603,20 @@ func catchPokemon(userID string) (Pokemon, bool) {
 		delete(store.Encounters, userID)
 		return Pokemon{}, false
 	}
-	if rand.Intn(100) >= 70 {
+	captureChance := 70
+	p := store.Players[userID]
+	if !p.ActiveLureUntil.IsZero() && time.Now().Before(p.ActiveLureUntil) {
+		switch p.ActiveLureName {
+		case "Isca":
+			captureChance += 15
+		case "Super Isca":
+			captureChance += 25
+		}
+	}
+	if rand.Intn(100) >= captureChance {
 		delete(store.Encounters, userID)
 		return Pokemon{}, false
 	}
-
-	p := store.Players[userID]
 	caught := e.Pokemon
 	caught.XP = 0
 	caught.XPToNext = xpToNext(caught.Level)
