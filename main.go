@@ -1088,6 +1088,10 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 		log.Printf("save battle state: %v", err)
 	}
 	store.mu.Unlock()
+	if battle.Elite {
+		editLeagueBattle(s,i,battle,battle.EliteIndex,strings.Join(messages,"\n"))
+		return
+	}
 	editBattle(s, i, battle, strings.Join(messages, "\n"))
 }
 
