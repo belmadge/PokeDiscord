@@ -316,12 +316,15 @@ func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if pk.Shiny {
 			shiny = " ✨"
 		}
+		if pk.Type == "" {
+			pk.Type = pokemonType(pk.ID)
+		}
 		evo := evolutionFor(pk)
 		extra := ""
 		if evo != nil {
 			extra = fmt.Sprintf(" → %s no Lv. %d", evo.ToName, evo.Level)
 		}
-		lines = append(lines, fmt.Sprintf("**%d. %s**%s — Lv. %d — XP %d/%d%s", idx+1, pk.Name, shiny, pk.Level, pk.XP, pk.XPToNext, extra))
+		lines = append(lines, fmt.Sprintf("**%d. %s**%s — %s — Lv. %d — XP %d/%d%s", idx+1, pk.Name, shiny, pk.Type, pk.Level, pk.XP, pk.XPToNext, extra))
 	}
 	respondEmbed(s, i, &discordgo.MessageEmbed{
 		Title: "📦 Seus Pokémon",
