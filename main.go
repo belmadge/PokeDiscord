@@ -905,7 +905,6 @@ func startEliteBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	battle:=createLeagueBattle(p,p.LeagueWins)
 	store.Battles[userID]=battle
 	store.mu.Unlock()
-	deferComponent(s,i)
 	respondLeagueBattle(s,i,battle,battle.EliteIndex)
 }
 
