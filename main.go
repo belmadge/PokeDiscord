@@ -2041,6 +2041,16 @@ func trainerSpriteURL(name string) string {
 	return "https://img.pokemondb.net/sprites/trainers/heartgold-soulsilver/red.png"
 }
 
+func respondMultiEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent) {
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds:     embeds,
+			Components: components,
+		},
+	})
+}
+
 func respondEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, embed *discordgo.MessageEmbed) {
 	respondEmbedWithComponents(s, i, embed, nil)
 }
