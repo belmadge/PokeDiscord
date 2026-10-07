@@ -833,8 +833,16 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 		p := store.Players[userID]
 		rewardCoins := 15 + battle.Opponent.Level*3
 		rewardXP := 15 + battle.Opponent.Level*5
-		p.Coins += rewardCoins
-		p.ColiseumWins++
+		gym := findGym(battle.GymID)
+		if gym != nil {
+			rewardCoins = gym.RewardCoins
+			rewardXP = 25 + gym.UnlockLevel*5
+			p.Coins += rewardCoins
+			p.Badges = append(p.Badges, gym.Badge)
+		} else {
+			p.Coins += rewardCoins
+			p.ColiseumWins++
+		}
 		battle.PlayerPokemon.HP = battle.PlayerHP
 		p.Pokemon = addPokemonXP(p.Pokemon, battle.PlayerPokemon, rewardXP)
 		store.Players[userID] = p
@@ -843,7 +851,11 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 			log.Printf("save battle victory: %v", err)
 		}
 		store.mu.Unlock()
-		editComponent(s, i, fmt.Sprintf("🏆 **Vitória!**\n\n%s\n💰 **+%d Coins**\n✨ **+%d XP** para %s.", strings.Join(messages, "\n"), rewardCoins, rewardXP, battle.PlayerPokemon.Name))
+		if gym != nil {
+			editComponent(s, i, fmt.Sprintf("🏆 **Ginásio derrotado!**\n\n%s\n\n🏅 **%s** conquistada!\n💰 **+%d Coins**\n✨ **+%d XP** para %s.", strings.Join(messages, "\n"), gym.Badge, rewardCoins, rewardXP, battle.PlayerPokemon.Name))
+		} else {
+			editComponent(s, i, fmt.Sprintf("🏆 **Vitória!**\n\n%s\n💰 **+%d Coins**\n✨ **+%d XP** para %s.", strings.Join(messages, "\n"), rewardCoins, rewardXP, battle.PlayerPokemon.Name))
+		}
 		return
 	}
 
@@ -867,7 +879,7 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 		}
 		delete(store.Battles, userID)
 		store.mu.Unlock()
-		editComponent(s, i, fmt.Sprintf("💀 **Derrota!**\n\n%s\nSeu Pokémon ficou sem HP. Tente novamente no Coliseu.", strings.Join(messages, "\n")))
+		editComponent(s, i, fmt.Sprintf("💀 **Derrota!**\n\n%s\nSeu Pokémon ficou sem HP. Use /curar antes de tentar novamente.", strings.Join(messages, "\n")))
 		return
 	}
 
@@ -905,12 +917,13 @@ func battleComponents(battle Battle) []discordgo.MessageComponent {
 }
 
 func respondBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle) {
-	respondEmbedWithComponents(s, i, &discordgo.MessageEmbed{
-		Title: "⚔️ Coliseu",
-		Description: fmt.Sprintf("**%s** enfrenta **%s**!", battle.PlayerPokemon.Name, battle.Opponent.Name),
-		Color: 0xED4245,
-		Fields: battleFields(battle),
-	}, battleComponents(battle))
+	title := "⚔️ Coliseu"; color := 0xED4245
+	if battle.GymID != "" { title = "🏟️ Ginásio"; color = 0xF1C40F }
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{Title:title,Description:fmt.Sprintf("**%s** enfrenta **%s**!",battle.PlayerPokemon.Name,battle.Opponent.Name),Color:color,Fields:battleFields(battle)},battleComponents(battle))
+}
+
+func respondGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, gym Gym) {
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{Title:"🏟️ "+gym.Name,Description:fmt.Sprintf("Líder **%s** (%s) desafia você!",gym.Leader,gym.Type),Color:0xF1C40F,Fields:battleFields(battle)},battleComponents(battle))
 }
 
 func editBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, logText string) {
