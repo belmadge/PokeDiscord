@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/joho/godotenv"
 )
 
 const dataFile = "data/players.json"
@@ -62,6 +63,9 @@ var pokemonPool = []Pokemon{
 
 
 func main() {
+	// Load local .env when present. Environment variables still take precedence.
+	_ = godotenv.Load()
+
 	if err := loadStore(); err != nil {
 		log.Fatal(err)
 	}
