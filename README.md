@@ -93,3 +93,7 @@ This project is initially intended for private use with friends. Pokémon names 
 - **Safari Zone** — Level 12 — Nidoran, Exeggcute, Tauros, Scyther
 
 Use `/rotas` para escolher a rota atual. Depois use `/procurar` para encontrar Pokémon nela.
+
+### Coliseu
+
+Use `/coliseu numero:1` para entrar em uma batalha PvE. Ataques alternados reduzem o HP; vitórias concedem Coins e XP ao Pokémon usado.
