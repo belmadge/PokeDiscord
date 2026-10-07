@@ -726,6 +726,15 @@ func handleRanking(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 
+func findGym(id string) *Gym {
+	for n := range gyms {
+		if gyms[n].ID == id {
+			return &gyms[n]
+		}
+	}
+	return nil
+}
+
 func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p, ok := getPlayer(iUser(i).ID)
 	if !ok { respond(s,i,"Você ainda não começou. Use /iniciar primeiro."); return }
