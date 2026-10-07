@@ -65,13 +65,22 @@ type Encounter struct {
 	ExpiresAt time.Time
 }
 
+type Battle struct {
+	OwnerID       string
+	PlayerPokemon Pokemon
+	Opponent      Pokemon
+	PlayerHP      int
+	OpponentHP    int
+}
+
 type Store struct {
 	mu         sync.RWMutex
 	Players    map[string]Player
 	Encounters map[string]Encounter
+	Battles    map[string]Battle
 }
 
-var store = &Store{Players: map[string]Player{}, Encounters: map[string]Encounter{}}
+var store = &Store{Players: map[string]Player{}, Encounters: map[string]Encounter{}, Battles: map[string]Battle{}}
 
 var pokemonPool = []Pokemon{
 	{ID: 1, Name: "Bulbasaur", Level: 1, XPToNext: 14},
@@ -164,6 +173,7 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "loja", Description: "Veja os itens disponíveis na loja"},
 		{Name: "comprar", Description: "Compre um item na loja", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "item", Description: "Item que deseja comprar", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Isca", Value: "isca"}, {Name: "Super Isca", Value: "super_isca"}}}}},
 		{Name: "usar", Description: "Use uma isca do inventário", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "item", Description: "Isca que deseja usar", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Isca", Value: "isca"}, {Name: "Super Isca", Value: "super_isca"}}}}},
+		{Name: "coliseu", Description: "Entre no Coliseu e enfrente um adversário", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true, MinValue: func() *float64 { v := 1.0; return &v }()}}},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
@@ -221,6 +231,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleBuy(s, i)
 	case "usar":
 		handleUse(s, i)
+	case "coliseu":
+		handleColiseum(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "rotas":
@@ -494,6 +506,174 @@ func handlePokedex(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 }
 
+func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := iUser(i).ID
+	opts := i.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		respond(s, i, "Escolha o número do Pokémon que deseja usar no Coliseu.")
+		return
+	}
+	index := int(opts[0].IntValue()) - 1
+
+	store.mu.Lock()
+	player, ok := store.Players[userID]
+	if !ok {
+		store.mu.Unlock()
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+	if index < 0 || index >= len(player.Pokemon) {
+		store.mu.Unlock()
+		respond(s, i, fmt.Sprintf("❌ Pokémon inválido. Use /pokemon para ver os números de 1 a %d.", len(player.Pokemon)))
+		return
+	}
+	if _, active := store.Battles[userID]; active {
+		store.mu.Unlock()
+		respond(s, i, "⚔️ Você já está em uma batalha! Termine-a antes de entrar em outra.")
+		return
+	}
+
+	chosen := player.Pokemon[index]
+	opponent := randomOpponent(player.Level)
+	battle := Battle{
+		OwnerID: userID,
+		PlayerPokemon: chosen,
+		Opponent: opponent,
+		PlayerHP: battleHP(chosen),
+		OpponentHP: battleHP(opponent),
+	}
+	store.Battles[userID] = battle
+	store.mu.Unlock()
+
+	respondBattle(s, i, battle)
+}
+
+func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
+	store.mu.Lock()
+	battle, ok := store.Battles[userID]
+	if !ok {
+		store.mu.Unlock()
+		editComponent(s, i, "❌ Você não está em uma batalha ativa.")
+		return
+	}
+
+	playerDamage := battleDamage(battle.PlayerPokemon)
+	battle.OpponentHP -= playerDamage
+	messages := []string{fmt.Sprintf("⚔️ **%s causou %d de dano!**", battle.PlayerPokemon.Name, playerDamage)}
+
+	if battle.OpponentHP <= 0 {
+		p := store.Players[userID]
+		rewardCoins := 15 + battle.Opponent.Level*3
+		rewardXP := 15 + battle.Opponent.Level*5
+		p.Coins += rewardCoins
+		p.Pokemon = addPokemonXP(p.Pokemon, battle.PlayerPokemon, rewardXP)
+		store.Players[userID] = p
+		delete(store.Battles, userID)
+		if err := saveStoreLocked(); err != nil {
+			log.Printf("save battle victory: %v", err)
+		}
+		store.mu.Unlock()
+		editComponent(s, i, fmt.Sprintf("🏆 **Vitória!**\n\n%s\n💰 **+%d Coins**\n✨ **+%d XP** para %s.", strings.Join(messages, "\n"), rewardCoins, rewardXP, battle.PlayerPokemon.Name))
+		return
+	}
+
+	opponentDamage := battleDamage(battle.Opponent)
+	battle.PlayerHP -= opponentDamage
+	messages = append(messages, fmt.Sprintf("💥 **%s causou %d de dano!**", battle.Opponent.Name, opponentDamage))
+
+	if battle.PlayerHP <= 0 {
+		delete(store.Battles, userID)
+		store.mu.Unlock()
+		editComponent(s, i, fmt.Sprintf("💀 **Derrota!**\n\n%s\nSeu Pokémon ficou sem HP. Tente novamente no Coliseu.", strings.Join(messages, "\n")))
+		return
+	}
+
+	store.Battles[userID] = battle
+	store.mu.Unlock()
+	editBattle(s, i, battle, strings.Join(messages, "\n"))
+}
+
+func respondBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle) {
+	respondEmbedWithComponents(s, i, &discordgo.MessageEmbed{
+		Title: "⚔️ Coliseu",
+		Description: fmt.Sprintf("**%s** enfrenta **%s**!", battle.PlayerPokemon.Name, battle.Opponent.Name),
+		Color: 0xED4245,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "🧑‍🎤 Seu Pokémon", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.PlayerPokemon.Name, battle.PlayerPokemon.Level, battle.PlayerHP, battleHP(battle.PlayerPokemon)), Inline: true},
+			{Name: "👾 Adversário", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.Opponent.Name, battle.Opponent.Level, battle.OpponentHP, battleHP(battle.Opponent)), Inline: true},
+		},
+	}, []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+		discordgo.Button{CustomID: "batalhar:" + battle.OwnerID, Label: "⚔️ Atacar", Style: discordgo.DangerButton},
+	}}})
+}
+
+func editBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, logText string) {
+	content := logText
+	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+		discordgo.Button{CustomID: "batalhar:" + battle.OwnerID, Label: "⚔️ Atacar", Style: discordgo.DangerButton},
+	}}}
+	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+		Embeds: &[]*discordgo.MessageEmbed{{
+			Title: "⚔️ Coliseu",
+			Description: fmt.Sprintf("**%s** vs **%s**", battle.PlayerPokemon.Name, battle.Opponent.Name),
+			Color: 0xED4245,
+			Fields: []*discordgo.MessageEmbedField{
+				{Name: "🧑‍🎤 Seu Pokémon", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.PlayerPokemon.Name, battle.PlayerPokemon.Level, battle.PlayerHP, battleHP(battle.PlayerPokemon)), Inline: true},
+				{Name: "👾 Adversário", Value: fmt.Sprintf("%s — Lv. %d\n❤️ HP: %d/%d", battle.Opponent.Name, battle.Opponent.Level, battle.OpponentHP, battleHP(battle.Opponent)), Inline: true},
+			},
+		}}, Components: &components,
+	})
+	if err != nil {
+		log.Printf("edit battle: %v", err)
+	}
+}
+
+func randomOpponent(trainerLevel int) Pokemon {
+	candidates := pokemonPool
+	pk := candidates[rand.Intn(len(candidates))]
+	minLevel := trainerLevel
+	if minLevel < 1 {
+		minLevel = 1
+	}
+	maxLevel := minLevel + 2
+	pk.Level = minLevel + rand.Intn(maxLevel-minLevel+1)
+	pk.XP = 0
+	pk.XPToNext = xpToNext(pk.Level)
+	pk.Shiny = false
+	return pk
+}
+
+func battleHP(pk Pokemon) int {
+	return 30 + pk.Level*10
+}
+
+func battleDamage(pk Pokemon) int {
+	return 5 + pk.Level*2 + rand.Intn(6)
+}
+
+func addPokemonXP(pokemon []Pokemon, target Pokemon, amount int) []Pokemon {
+	for idx := range pokemon {
+		if pokemon[idx].ID == target.ID && pokemon[idx].Level == target.Level && pokemon[idx].Shiny == target.Shiny {
+			pokemon[idx].XP += amount
+			if pokemon[idx].XPToNext <= 0 {
+				pokemon[idx].XPToNext = xpToNext(pokemon[idx].Level)
+			}
+			for pokemon[idx].XP >= pokemon[idx].XPToNext {
+				pokemon[idx].XP -= pokemon[idx].XPToNext
+				pokemon[idx].Level++
+				pokemon[idx].XPToNext = xpToNext(pokemon[idx].Level)
+				if evo := evolutionFor(pokemon[idx]); evo != nil && pokemon[idx].Level >= evo.Level {
+					pokemon[idx].ID = evo.ToID
+					pokemon[idx].Name = evo.ToName
+				}
+			}
+			break
+		}
+	}
+	return pokemon
+}
+
 func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := iUser(i).ID
 	store.mu.Lock()
@@ -592,6 +772,9 @@ func handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		} else {
 			editComponent(s, i, "O encontro já terminou.")
 		}
+	case "batalhar":
+		deferComponent(s, i)
+		handleBattleAttack(s, i, userID)
 	}
 }
 func catchPokemon(userID string) (Pokemon, bool) {
