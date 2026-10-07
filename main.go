@@ -47,6 +47,15 @@ type Route struct {
 	PokemonIDs  []int
 }
 
+type Evolution struct {
+	FromID int
+	FromName string
+	ToID int
+	ToName string
+	Level int
+}
+
+
 type Encounter struct {
 	OwnerID   string
 	Pokemon   Pokemon
@@ -146,6 +155,7 @@ func registerCommands(s *discordgo.Session) error {
 		},
 		{Name: "perfil", Description: "Veja seu perfil de treinador"},
 		{Name: "pokemon", Description: "Veja seus Pokémon"},
+		{Name: "treinar", Description: "Treine um Pokémon da sua coleção", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true, MinValue: func() *float64 { v := 1.0; return &v }()}}},
 		{Name: "pokedex", Description: "Veja sua Pokédex e o progresso das rotas"},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
@@ -192,6 +202,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleProfile(s, i)
 	case "pokemon":
 		handlePokemon(s, i)
+	case "treinar":
+		handleTrain(s, i)
 	case "pokedex":
 		handlePokedex(s, i)
 	case "procurar":
@@ -260,7 +272,7 @@ func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p, ok := getPlayer(iUser(i).ID)
 	if !ok {
-		respond(s, i, "Você ainda não começou. Use `/iniciar` primeiro.")
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
 		return
 	}
 	lines := make([]string, 0, len(p.Pokemon))
@@ -269,11 +281,31 @@ func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if pk.Shiny {
 			shiny = " ✨"
 		}
-		lines = append(lines, fmt.Sprintf("**%d. %s**%s — Lv. %d — XP %d/%d", idx+1, pk.Name, shiny, pk.Level, pk.XP, pk.XPToNext))
+		evo := evolutionFor(pk)
+		extra := ""
+		if evo != nil {
+			extra = fmt.Sprintf(" → %s no Lv. %d", evo.ToName, evo.Level)
+		}
+		lines = append(lines, fmt.Sprintf("**%d. %s**%s — Lv. %d — XP %d/%d%s", idx+1, pk.Name, shiny, pk.Level, pk.XP, pk.XPToNext, extra))
 	}
 	respondEmbed(s, i, &discordgo.MessageEmbed{
-		Title: "📦 Seus Pokémon", Description: strings.Join(lines, "\n"), Color: 0x57F287,
+		Title: "📦 Seus Pokémon",
+		Description: strings.Join(lines, "\n"),
+		Color: 0x57F287,
 	})
+}
+
+func handleTrain(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := iUser(i).ID
+	opts := i.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		respond(s, i, "Informe o número do Pokémon que deseja treinar.")
+		return
+	}
+	index := int(opts[0].IntValue()) - 1
+	message, ok := trainPokemon(userID, index)
+	respond(s, i, message)
+	_ = ok
 }
 
 func handlePokedex(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -445,7 +477,10 @@ func catchPokemon(userID string) (Pokemon, bool) {
 	}
 
 	p := store.Players[userID]
-	p.Pokemon = append(p.Pokemon, e.Pokemon)
+	caught := e.Pokemon
+	caught.XP = 0
+	caught.XPToNext = xpToNext(caught.Level)
+	p.Pokemon = append(p.Pokemon, caught)
 	p.Coins += 5
 	p.XP += 10
 	for p.XP >= p.Level*50 {
@@ -466,6 +501,79 @@ func flee(userID string) bool {
 	}
 	delete(store.Encounters, userID)
 	return true
+}
+
+func trainPokemon(userID string, index int) (string, bool) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	p, ok := store.Players[userID]
+	if !ok {
+		return "Você ainda não começou. Use /iniciar primeiro.", false
+	}
+	if index < 0 || index >= len(p.Pokemon) {
+		return fmt.Sprintf("❌ Pokémon inválido. Use /pokemon para ver os números de 1 a %d.", len(p.Pokemon)), false
+	}
+
+	pk := &p.Pokemon[index]
+	pk.XP += 10
+	if pk.XPToNext <= 0 {
+		pk.XPToNext = xpToNext(pk.Level)
+	}
+
+	messages := []string{fmt.Sprintf("💪 **%s ganhou +10 XP!**", pk.Name)}
+	for pk.XP >= pk.XPToNext {
+		pk.XP -= pk.XPToNext
+		pk.Level++
+		pk.XPToNext = xpToNext(pk.Level)
+		messages = append(messages, fmt.Sprintf("⬆️ **%s chegou ao Level %d!**", pk.Name, pk.Level))
+
+		if evo := evolutionFor(*pk); evo != nil && pk.Level >= evo.Level {
+			oldName := pk.Name
+			pk.ID = evo.ToID
+			pk.Name = evo.ToName
+			pk.XPToNext = xpToNext(pk.Level)
+			messages = append(messages, fmt.Sprintf("✨ **%s evoluiu para %s!**", oldName, pk.Name))
+		}
+	}
+
+	store.Players[userID] = p
+	if err := saveStoreLocked(); err != nil {
+		log.Printf("save training: %v", err)
+	}
+	return strings.Join(messages, "\n"), true
+}
+
+func xpToNext(level int) int {
+	return 10 + level*4
+}
+
+func evolutionFor(pk Pokemon) *Evolution {
+	evolutions := []Evolution{
+		{FromID: 1, FromName: "Bulbasaur", ToID: 2, ToName: "Ivysaur", Level: 16},
+		{FromID: 2, FromName: "Ivysaur", ToID: 3, ToName: "Venusaur", Level: 32},
+		{FromID: 4, FromName: "Charmander", ToID: 5, ToName: "Charmeleon", Level: 16},
+		{FromID: 5, FromName: "Charmeleon", ToID: 6, ToName: "Charizard", Level: 36},
+		{FromID: 7, FromName: "Squirtle", ToID: 8, ToName: "Wartortle", Level: 16},
+		{FromID: 8, FromName: "Wartortle", ToID: 9, ToName: "Blastoise", Level: 36},
+		{FromID: 10, FromName: "Caterpie", ToID: 11, ToName: "Metapod", Level: 7},
+		{FromID: 11, FromName: "Metapod", ToID: 12, ToName: "Butterfree", Level: 10},
+		{FromID: 13, FromName: "Weedle", ToID: 14, ToName: "Kakuna", Level: 7},
+		{FromID: 14, FromName: "Kakuna", ToID: 15, ToName: "Beedrill", Level: 10},
+		{FromID: 16, FromName: "Pidgey", ToID: 17, ToName: "Pidgeotto", Level: 18},
+		{FromID: 17, FromName: "Pidgeotto", ToID: 18, ToName: "Pidgeot", Level: 36},
+		{FromID: 19, FromName: "Rattata", ToID: 20, ToName: "Raticate", Level: 20},
+		{FromID: 21, FromName: "Spearow", ToID: 22, ToName: "Fearow", Level: 20},
+		{FromID: 41, FromName: "Zubat", ToID: 42, ToName: "Golbat", Level: 22},
+		{FromID: 74, FromName: "Geodude", ToID: 75, ToName: "Graveler", Level: 25},
+	}
+	for _, evo := range evolutions {
+		if pk.ID == evo.FromID {
+			copy := evo
+			return &copy
+		}
+	}
+	return nil
 }
 
 func handleRoutes(s *discordgo.Session, i *discordgo.InteractionCreate) {
