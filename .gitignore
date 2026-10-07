@@ -1,0 +1,15 @@
+# Environment
+.env
+
+# Local game data
+data/
+
+# Go
+bin/
+dist/
+*.test
+coverage.out
+
+# IDE
+.vscode/
+.idea/
