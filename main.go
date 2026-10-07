@@ -893,6 +893,22 @@ func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	respondBattle(s, i, battle)
 }
 
+func startEliteBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID:=iUser(i).ID
+	store.mu.Lock()
+	p,ok:=store.Players[userID]
+	if !ok { store.mu.Unlock(); editComponent(s,i,"Você ainda não começou. Use /iniciar."); return }
+	if len(p.Badges)<8 { store.mu.Unlock(); editComponent(s,i,"🔒 Você precisa das **8 insígnias** para entrar na Liga Pokémon."); return }
+	if p.Champion { store.mu.Unlock(); editComponent(s,i,"👑 Você já é o Campeão!"); return }
+	if _,active:=store.Battles[userID]; active { store.mu.Unlock(); editComponent(s,i,"⚔️ Você já está em uma batalha."); return }
+	if len(p.Team)==0 { store.mu.Unlock(); editComponent(s,i,"❌ Monte sua equipe com /equipe."); return }
+	battle:=createLeagueBattle(p,p.LeagueWins)
+	store.Battles[userID]=battle
+	store.mu.Unlock()
+	deferComponent(s,i)
+	respondLeagueBattle(s,i,battle,battle.EliteIndex)
+}
+
 func createLeagueBattle(p Player, stage int) Battle {
 	teamIndex := p.Team[0]
 	chosen := p.Pokemon[teamIndex]
@@ -924,7 +940,13 @@ func handleElite(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	description := "Conquiste as 8 insígnias para entrar na Liga Pokémon. Depois, enfrente os 4 membros em sequência e finalmente o Campeão."
 	if p.Champion { description = "👑 **Você é o Campeão!** A Elite Four e o Hall da Fama foram conquistados." }
-	respondEmbed(s,i,&discordgo.MessageEmbed{
+	components:=[]discordgo.MessageComponent{}
+	if len(p.Badges)>=8 && !p.Champion && p.LeagueWins<5 {
+		components=[]discordgo.MessageComponent{discordgo.ActionsRow{Components:[]discordgo.MessageComponent{
+			discordgo.Button{CustomID:"elite:start:"+p.DiscordID,Label:"🏆 Iniciar Desafio",Style:discordgo.SuccessButton},
+		}}}
+	}
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{
 		Title:"🏆 Elite Four • Liga Pokémon",
 		Description:description,
 		Color:0x9B59B6,
@@ -935,7 +957,7 @@ func handleElite(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		},
 		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(149)},
 		Footer:&discordgo.MessageEmbedFooter{Text:strings.Join(lines,"\n")},
-	})
+	},components)
 }
 
 func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, userID string, moveIndex int) {
@@ -1058,6 +1080,18 @@ func handleBattleAttack(s *discordgo.Session, i *discordgo.InteractionCreate, us
 	}
 	store.mu.Unlock()
 	editBattle(s, i, battle, strings.Join(messages, "\n"))
+}
+
+func respondLeagueBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, stage int) {
+	trainer:=leagueTrainers[stage]
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{
+		Title:fmt.Sprintf("🏆 %s • Desafio %d/5",trainer.Name,stage+1),
+		Description:fmt.Sprintf("**%s** enfrenta **%s**!\n\n⚠️ Esta batalha faz parte da sequência da Liga Pokémon.",battle.PlayerPokemon.Name,battle.Opponent.Name),
+		Color:0x9B59B6,
+		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(battle.Opponent.ID)},
+		Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},
+		Fields:battleFields(battle),
+	},battleComponents(battle))
 }
 
 func editLeagueBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, stage int, logText string) {
@@ -1446,6 +1480,10 @@ func handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	if len(parts) == 3 && parts[2] == userID && parts[0] == "rota" {
 		handleRouteSelection(s, i, parts[1])
+		return
+	}
+	if len(parts) == 3 && parts[2] == userID && parts[0] == "elite" && parts[1] == "start" {
+		startEliteBattle(s,i)
 		return
 	}
 
