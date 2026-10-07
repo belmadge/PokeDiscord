@@ -50,6 +50,8 @@ type Player struct {
 	ColiseumWins    int            `json:"coliseum_wins"`
 	Team            []int          `json:"team"`
 	Badges          []string       `json:"badges"`
+	LeagueWins      int            `json:"league_wins"`
+	Champion        bool           `json:"champion"`
 }
 
 type Route struct {
@@ -84,6 +86,8 @@ type Battle struct {
 	PlayerHP      int
 	OpponentHP    int
 	GymID         string
+	Elite         bool
+	EliteIndex    int
 }
 
 type Store struct {
@@ -225,6 +229,7 @@ func registerCommands(s *discordgo.Session) error {
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "limpar", Description: "Remova todos os Pokémon da equipe"},
 		}},
 		{Name: "ginasios", Description: "Veja os ginásios e suas insígnias"},
+		{Name: "elite", Description: "Veja a Elite Four e o Campeão"},
 		{Name: "ginasio", Description: "Desafie um líder de ginásio", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do ginásio", Required: true}}},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "lendarios", Description: "Veja os Pokémon lendários e como encontrá-los"},
@@ -298,6 +303,8 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleGyms(s, i)
 	case "ginasio":
 		handleGymBattle(s, i)
+	case "elite":
+		handleElite(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "lendarios":
@@ -331,6 +338,8 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Items: map[string]int{"isca": 0, "super_isca": 0},
 		Team: []int{0},
 		Badges: []string{},
+		LeagueWins: 0,
+		Champion: false,
 	}
 	store.Players[user.ID] = p
 	store.mu.Unlock()
@@ -810,7 +819,7 @@ func handleGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	idx:=p.Team[0]; if idx<0 || idx>=len(p.Pokemon) { store.mu.Unlock(); respond(s,i,"❌ Sua equipe está inválida."); return }
 	chosen:=p.Pokemon[idx]; chosen.Type=pokemonType(chosen.ID); hp:=chosen.HP; if hp<=0 || hp>battleHP(chosen) { hp=battleHP(chosen) }
 	op:=g.Pokemon[rand.Intn(len(g.Pokemon))]; op.Type=pokemonType(op.ID)
-	battle:=Battle{OwnerID:uid,PlayerPokemon:chosen,Opponent:op,PlayerHP:hp,OpponentHP:battleHP(op),GymID:g.ID}
+	battle:=Battle{OwnerID:uid,PlayerPokemon:chosen,Opponent:op,PlayerHP:hp,OpponentHP:battleHP(op),GymID:g.ID, Elite:false, EliteIndex:-1}
 	store.Battles[uid]=battle; store.mu.Unlock()
 	respondGymBattle(s,i,battle,g)
 }
@@ -860,6 +869,8 @@ func handleColiseum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Opponent: opponent,
 		PlayerHP: currentHP,
 		OpponentHP: battleHP(opponent),
+		Elite: false,
+		EliteIndex: -1,
 	}
 	store.Battles[userID] = battle
 	store.mu.Unlock()
