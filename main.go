@@ -1099,11 +1099,25 @@ func battleComponents(battle Battle) []discordgo.MessageComponent {
 func respondBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle) {
 	title := "⚔️ Coliseu"; color := 0xED4245
 	if battle.GymID != "" { title = "🏟️ Ginásio"; color = 0xF1C40F }
-	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{Title:title,Description:fmt.Sprintf("**%s** enfrenta **%s**!",battle.PlayerPokemon.Name,battle.Opponent.Name),Color:color,Fields:battleFields(battle)},battleComponents(battle))
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{
+		Title:title,
+		Description:fmt.Sprintf("**%s** enfrenta **%s**!",battle.PlayerPokemon.Name,battle.Opponent.Name),
+		Color:color,
+		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(battle.Opponent.ID)},
+		Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},
+		Fields:battleFields(battle),
+	},battleComponents(battle))
 }
 
 func respondGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, gym Gym) {
-	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{Title:"🏟️ "+gym.Name,Description:fmt.Sprintf("Líder **%s** (%s) desafia você!",gym.Leader,gym.Type),Color:0xF1C40F,Fields:battleFields(battle)},battleComponents(battle))
+	respondEmbedWithComponents(s,i,&discordgo.MessageEmbed{
+		Title:"🏟️ "+gym.Name,
+		Description:fmt.Sprintf("👤 Líder **%s** • Tipo **%s**\n\n**%s** vs **%s**",gym.Leader,gym.Type,battle.PlayerPokemon.Name,battle.Opponent.Name),
+		Color:0xF1C40F,
+		Thumbnail:&discordgo.MessageEmbedThumbnail{URL:officialArtworkURL(battle.Opponent.ID)},
+		Image:&discordgo.MessageEmbedImage{URL:officialArtworkURL(battle.PlayerPokemon.ID)},
+		Fields:battleFields(battle),
+	},battleComponents(battle))
 }
 
 func editBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Battle, logText string) {
@@ -1118,6 +1132,8 @@ func editBattle(s *discordgo.Session, i *discordgo.InteractionCreate, battle Bat
 			Title: title,
 			Description: fmt.Sprintf("**%s** vs **%s**", battle.PlayerPokemon.Name, battle.Opponent.Name),
 			Color: color,
+			Thumbnail: &discordgo.MessageEmbedThumbnail{URL: officialArtworkURL(battle.Opponent.ID)},
+			Image: &discordgo.MessageEmbedImage{URL: officialArtworkURL(battle.PlayerPokemon.ID)},
 			Fields: battleFields(battle),
 		}},
 		Components: &components,
@@ -1264,7 +1280,15 @@ func typeMultiplier(moveType, defenderType string) float64 {
 			if defender == "Planta" || defender == "Psíquico" { m = 2 }
 			if defender == "Fogo" || defender == "Pedra" { m = 0.5 }
 		case "Pedra":
-			if defender == "Fogo" || defender == "Inseto" || defender == "Voador" { m = 2 }
+			if defender == "Fogo" || defender == "Inseto" || defender == "Voador" || defender == "Gelo" { m = 2 }
+		case "Gelo":
+			if defender == "Dragão" || defender == "Voador" { m = 2 }
+		case "Fantasma":
+			if defender == "Psíquico" || defender == "Fantasma" { m = 2 }
+		case "Lutador":
+			if defender == "Normal" || defender == "Pedra" || defender == "Gelo" { m = 2 }
+		case "Dragão":
+			if defender == "Dragão" { m = 2 }
 		case "Veneno":
 			if defender == "Planta" || defender == "Fada" { m = 2 }
 		case "Fada":
