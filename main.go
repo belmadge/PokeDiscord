@@ -875,14 +875,8 @@ func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
 		return
 	}
-	embeds := make([]*discordgo.MessageEmbed, 0, len(gyms)+1)
-	embeds = append(embeds, &discordgo.MessageEmbed{
-		Title:       "🏟️ Ginásios de Kanto",
-		Description: fmt.Sprintf("Desafie os líderes, conquiste as **8 insígnias** e torne-se o Campeão!\n\n**Progresso:** %d/8  %s", len(p.Badges), progressBar(len(p.Badges), 8, 8)),
-		Color:       0xF1C40F,
-		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: officialArtworkURL(112)},
-		Footer:      &discordgo.MessageEmbedFooter{Text: "Use /ginasio numero:N • A ordem dos ginásios é obrigatória"},
-	})
+
+	fields := make([]*discordgo.MessageEmbedField, 0, len(gyms))
 	for n, g := range gyms {
 		status := "🔒 Bloqueado"
 		if p.Level >= g.UnlockLevel {
@@ -897,30 +891,48 @@ func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				}
 			}
 			if !hasPrev {
-				status = "🔒 Requer a anterior"
+				status = "🔒 Requer anterior"
 			}
 		}
 		for _, b := range p.Badges {
 			if b == g.Badge {
 				status = "✅ Conquistado"
+				break
 			}
 		}
+
 		ace := gymAce(g)
-		embeds = append(embeds, &discordgo.MessageEmbed{
-			Title:       fmt.Sprintf("%d. %s", n+1, g.Name),
-			Description: fmt.Sprintf("👤 **Líder:** %s\n%s **Tipo:** %s\n🎖️ **%s**\n\n**%s**", g.Leader, typeEmoji(g.Type), g.Type, g.Badge, status),
-			Color:       typeColor(g.Type),
-			Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: trainerSpriteURL(g.Leader)},
-			Image:       &discordgo.MessageEmbedImage{URL: officialArtworkURL(ace.ID)},
-			Fields: []*discordgo.MessageEmbedField{
-				{Name: "🔓 Requisito", Value: fmt.Sprintf("Level %d", g.UnlockLevel), Inline: true},
-				{Name: "⭐ Ace", Value: fmt.Sprintf("%s · Lv. %d", ace.Name, ace.Level), Inline: true},
-				{Name: "💰 Recompensa", Value: fmt.Sprintf("%d Coins + XP", g.RewardCoins), Inline: true},
-			},
-			Footer: &discordgo.MessageEmbedFooter{Text: "Use /ginasio numero:" + strconv.Itoa(n+1) + " para desafiar"},
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: fmt.Sprintf("%d. %s", n+1, g.Name),
+			Value: fmt.Sprintf(
+				"%s **%s**\n%s %s\n🎖️ %s\n🔓 Lv. %d\n⭐ %s · Lv. %d\n💰 %d Coins\n/ginasio numero:%d",
+				status,
+				g.Leader,
+				typeEmoji(g.Type),
+				g.Type,
+				g.Badge,
+				g.UnlockLevel,
+				ace.Name,
+				ace.Level,
+				g.RewardCoins,
+				n+1,
+			),
+			Inline: true,
 		})
 	}
-	respondMultiEmbeds(s, i, embeds, nil)
+
+	respondEmbed(s, i, &discordgo.MessageEmbed{
+		Title: "🏟️ Ginásios de Kanto",
+		Description: fmt.Sprintf(
+			"Desafie os líderes, conquiste as **8 insígnias** e torne-se o Campeão!\n\n**Progresso:** %d/8  %s",
+			len(p.Badges),
+			progressBar(len(p.Badges), 8, 8),
+		),
+		Color: 0xF1C40F,
+		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: officialArtworkURL(112)},
+		Fields: fields,
+		Footer: &discordgo.MessageEmbedFooter{Text: "Use /ginasio numero:N • A ordem dos ginásios é obrigatória"},
+	})
 }
 
 func handleGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
