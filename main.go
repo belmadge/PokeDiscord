@@ -33,8 +33,11 @@ type Player struct {
 	Coins        int       `json:"coins"`
 	Level        int       `json:"level"`
 	XP           int       `json:"xp"`
-	Pokemon      []Pokemon `json:"pokemon"`
-	CurrentRoute string    `json:"current_route"`
+	Pokemon         []Pokemon       `json:"pokemon"`
+	CurrentRoute    string         `json:"current_route"`
+	Items           map[string]int `json:"items"`
+	ActiveLureUntil time.Time      `json:"active_lure_until"`
+	ActiveLureName  string         `json:"active_lure_name"`
 }
 
 type Route struct {
@@ -157,6 +160,10 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "pokemon", Description: "Veja seus Pokémon"},
 		{Name: "treinar", Description: "Treine um Pokémon da sua coleção", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionInteger, Name: "numero", Description: "Número do Pokémon em /pokemon", Required: true, MinValue: func() *float64 { v := 1.0; return &v }()}}},
 		{Name: "pokedex", Description: "Veja sua Pokédex e o progresso das rotas"},
+		{Name: "inventario", Description: "Veja seus itens e iscas"},
+		{Name: "loja", Description: "Veja os itens disponíveis na loja"},
+		{Name: "comprar", Description: "Compre um item na loja", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "item", Description: "Item que deseja comprar", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Isca", Value: "isca"}, {Name: "Super Isca", Value: "super_isca"}}}}},
+		{Name: "usar", Description: "Use uma isca do inventário", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "item", Description: "Isca que deseja usar", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Isca", Value: "isca"}, {Name: "Super Isca", Value: "super_isca"}}}}},
 		{Name: "procurar", Description: "Procure um Pokémon selvagem"},
 		{Name: "rotas", Description: "Veja as rotas e escolha onde caçar Pokémon"},
 		{Name: "capturar", Description: "Tente capturar o Pokémon encontrado"},
@@ -206,6 +213,14 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleTrain(s, i)
 	case "pokedex":
 		handlePokedex(s, i)
+	case "inventario":
+		handleInventory(s, i)
+	case "loja":
+		handleShop(s, i)
+	case "comprar":
+		handleBuy(s, i)
+	case "usar":
+		handleUse(s, i)
 	case "procurar":
 		handleHunt(s, i)
 	case "rotas":
@@ -234,6 +249,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		DiscordID: user.ID, Username: user.Username, Coins: 100, Level: 1,
 		Pokemon: []Pokemon{newPokemonByName(starter)},
 		CurrentRoute: "route1",
+		Items: map[string]int{"isca": 0, "super_isca": 0},
 	}
 	store.Players[user.ID] = p
 	store.mu.Unlock()
@@ -306,6 +322,117 @@ func handleTrain(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	message, ok := trainPokemon(userID, index)
 	respond(s, i, message)
 	_ = ok
+}
+
+func handleInventory(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	p, ok := getPlayer(iUser(i).ID)
+	if !ok {
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+	isca := p.Items["isca"]
+	super := p.Items["super_isca"]
+	lure := "Nenhuma ativa"
+	if !p.ActiveLureUntil.IsZero() && time.Now().Before(p.ActiveLureUntil) {
+		lure = fmt.Sprintf("%s — %d min restantes", p.ActiveLureName, int(time.Until(p.ActiveLureUntil).Minutes())+1)
+	}
+	respondEmbed(s, i, &discordgo.MessageEmbed{
+		Title: "🎒 Inventário",
+		Description: fmt.Sprintf("💰 **%d Coins**\n\n🎣 **Isca:** %d\n🎣 **Super Isca:** %d\n\n🔥 **Isca ativa:** %s", p.Coins, isca, super, lure),
+		Color: 0xF2A900,
+	})
+}
+
+func handleShop(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	respondEmbed(s, i, &discordgo.MessageEmbed{
+		Title: "🏪 Loja",
+		Description: "Use `/comprar` para adquirir um item.",
+		Color: 0x5865F2,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "🎣 Isca", Value: "50 Coins\nDura 10 minutos\n+15% de chance de captura.", Inline: true},
+			{Name: "🎣 Super Isca", Value: "100 Coins\nDura 15 minutos\n+25% de chance de captura.", Inline: true},
+		},
+	})
+}
+
+func handleBuy(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	opts := i.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		respond(s, i, "Escolha um item para comprar.")
+		return
+	}
+	item := opts[0].StringValue()
+	prices := map[string]int{"isca": 50, "super_isca": 100}
+	names := map[string]string{"isca": "Isca", "super_isca": "Super Isca"}
+	price, exists := prices[item]
+	if !exists {
+		respond(s, i, "Esse item não existe na loja.")
+		return
+	}
+
+	userID := iUser(i).ID
+	store.mu.Lock()
+	p, ok := store.Players[userID]
+	if !ok {
+		store.mu.Unlock()
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+	if p.Coins < price {
+		store.mu.Unlock()
+		respond(s, i, fmt.Sprintf("❌ Você precisa de **%d Coins**, mas possui **%d**.", price, p.Coins))
+		return
+	}
+	if p.Items == nil {
+		p.Items = map[string]int{}
+	}
+	p.Coins -= price
+	p.Items[item]++
+	store.Players[userID] = p
+	if err := saveStoreLocked(); err != nil {
+		log.Printf("save purchase: %v", err)
+	}
+	store.mu.Unlock()
+
+	respond(s, i, fmt.Sprintf("🛍️ Você comprou **%s** por **%d Coins**! Use `/inventario` para conferir.", names[item], price))
+}
+
+func handleUse(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	opts := i.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		respond(s, i, "Escolha uma isca para usar.")
+		return
+	}
+	item := opts[0].StringValue()
+	duration := 10 * time.Minute
+	name := "Isca"
+	if item == "super_isca" {
+		duration = 15 * time.Minute
+		name = "Super Isca"
+	}
+	userID := iUser(i).ID
+	store.mu.Lock()
+	p, ok := store.Players[userID]
+	if !ok {
+		store.mu.Unlock()
+		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
+		return
+	}
+	if p.Items == nil || p.Items[item] <= 0 {
+		store.mu.Unlock()
+		respond(s, i, fmt.Sprintf("❌ Você não possui **%s**. Use `/loja` para comprar.", name))
+		return
+	}
+	p.Items[item]--
+	p.ActiveLureName = name
+	p.ActiveLureUntil = time.Now().Add(duration)
+	store.Players[userID] = p
+	if err := saveStoreLocked(); err != nil {
+		log.Printf("save lure: %v", err)
+	}
+	store.mu.Unlock()
+
+	respond(s, i, fmt.Sprintf("🎣 **%s ativada!** Ela ficará ativa por %d minutos e aumentará sua chance de captura. Use `/procurar`.", name, int(duration.Minutes())))
 }
 
 func handlePokedex(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -395,6 +522,10 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	pk := randomPokemonForRoute(*route, player.Pokemon)
+	lureText := "Nenhuma"
+	if !player.ActiveLureUntil.IsZero() && time.Now().Before(player.ActiveLureUntil) {
+		lureText = fmt.Sprintf("%s (%d min restantes)", player.ActiveLureName, int(time.Until(player.ActiveLureUntil).Minutes())+1)
+	}
 	store.Encounters[userID] = Encounter{OwnerID: userID, Pokemon: pk, ExpiresAt: time.Now().Add(60 * time.Second)}
 	store.mu.Unlock()
 
@@ -408,6 +539,7 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			{Name: "Raridade", Value: rarity(pk), Inline: true},
 			{Name: "🗺️ Rota", Value: route.Name, Inline: true},
 			{Name: "⏱️ Encontro", Value: "60 segundos", Inline: true},
+			{Name: "🎣 Isca", Value: lureText, Inline: true},
 		},
 	}, []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{CustomID: "capturar:" + userID, Label: "🎯 Capturar", Style: discordgo.PrimaryButton},
