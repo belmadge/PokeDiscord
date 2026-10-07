@@ -869,70 +869,217 @@ func findGym(id string) *Gym {
 	return nil
 }
 
+var gymImageCache = struct {
+	sync.RWMutex
+	items map[string]image.Image
+}{items: map[string]image.Image{}}
+
+func loadGymImage(url string) image.Image {
+	gymImageCache.RLock()
+	cached := gymImageCache.items[url]
+	gymImageCache.RUnlock()
+	if cached != nil {
+		return cached
+	}
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil
+	}
+	gymImageCache.Lock()
+	gymImageCache.items[url] = img
+	gymImageCache.Unlock()
+	return img
+}
+
+func gymFont(size float64, bold bool) font.Face {
+	data := goregular.TTF
+	if bold {
+		data = gobold.TTF
+	}
+	f, err := opentype.Parse(data)
+	if err != nil {
+		return nil
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingFull})
+	if err != nil {
+		return nil
+	}
+	return face
+}
+
+func gymText(dst *image.RGBA, text string, x, y int, size float64, c color.Color, bold bool) {
+	face := gymFont(size, bold)
+	if face == nil {
+		return
+	}
+	defer face.Close()
+	d := &font.Drawer{Dst: dst, Src: image.NewUniform(c), Face: face, Dot: fixed.P(x, y)}
+	d.DrawString(text)
+}
+
+func gymRoundRect(dst *image.RGBA, r image.Rectangle, radius int, c color.Color) {
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			cx, cy := x, y
+			if x < r.Min.X+radius {
+				cx = r.Min.X + radius
+			} else if x >= r.Max.X-radius {
+				cx = r.Max.X - radius - 1
+			}
+			if y < r.Min.Y+radius {
+				cy = r.Min.Y + radius
+			} else if y >= r.Max.Y-radius {
+				cy = r.Max.Y - radius - 1
+			}
+			dx, dy := x-cx, y-cy
+			if dx*dx+dy*dy <= radius*radius {
+				dst.Set(x, y, c)
+			}
+		}
+	}
+}
+
+func gymPaste(dst *image.RGBA, src image.Image, r image.Rectangle) {
+	if src == nil {
+		return
+	}
+	resized := image.NewRGBA(r)
+	draw.CatmullRom.Scale(resized, r, src, src.Bounds(), draw.Over, nil)
+	draw.Draw(dst, r, resized, image.Point{}, draw.Over)
+}
+
+func gymStatus(p Player, n int, g Gym) string {
+	for _, b := range p.Badges {
+		if b == g.Badge {
+			return "CONQUISTADO"
+		}
+	}
+	if p.Level < g.UnlockLevel {
+		return "BLOQUEADO"
+	}
+	if n > 0 {
+		for _, b := range p.Badges {
+			if b == gyms[n-1].Badge {
+				return "DESAFIAR"
+			}
+		}
+		return "REQUER ANTERIOR"
+	}
+	return "DESAFIAR"
+}
+
+func generateGymsCard(p Player) ([]byte, error) {
+	const w, h = 1400, 900
+	bg := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(bg, bg.Bounds(), image.NewUniform(color.RGBA{R: 16, G: 22, B: 35, A: 255}), image.Point{}, draw.Src)
+
+	gymText(bg, "GINÁSIOS DE KANTO", 42, 55, 34, color.White, true)
+	gymText(bg, "Conquiste as 8 insígnias para chegar à Elite Four", 42, 88, 19, color.RGBA{R: 185, G: 197, B: 215, A: 255}, false)
+	gymText(bg, fmt.Sprintf("PROGRESSO  %d/8", len(p.Badges)), 1040, 52, 19, color.RGBA{R: 245, G: 200, B: 70, A: 255}, true)
+	gymText(bg, progressBar(len(p.Badges), 8, 8), 1040, 82, 17, color.White, false)
+
+	cardW, cardH := 325, 365
+	gapX, gapY := 18, 18
+	startX, startY := 42, 120
+
+	for n, g := range gyms {
+		row, col := n/4, n%4
+		x, y := startX+col*(cardW+gapX), startY+row*(cardH+gapY)
+		status := gymStatus(p, n, g)
+		accent := color.RGBA{R: 120, G: 130, B: 150, A: 255}
+		switch g.Type {
+		case "Pedra":
+			accent = color.RGBA{R: 175, G: 150, B: 120, A: 255}
+		case "Água":
+			accent = color.RGBA{R: 75, G: 155, B: 235, A: 255}
+		case "Elétrico":
+			accent = color.RGBA{R: 245, G: 205, B: 65, A: 255}
+		case "Planta":
+			accent = color.RGBA{R: 80, G: 185, B: 110, A: 255}
+		case "Veneno":
+			accent = color.RGBA{R: 175, G: 100, B: 190, A: 255}
+		case "Psíquico":
+			accent = color.RGBA{R: 225, G: 100, B: 150, A: 255}
+		case "Fogo":
+			accent = color.RGBA{R: 235, G: 95, B: 65, A: 255}
+		case "Terra":
+			accent = color.RGBA{R: 185, G: 145, B: 75, A: 255}
+		}
+
+		gymRoundRect(bg, image.Rect(x, y, x+cardW, y+cardH), 18, color.RGBA{R: 31, G: 40, B: 58, A: 255})
+		gymRoundRect(bg, image.Rect(x, y, x+7, y+cardH), 4, accent)
+
+		trainer := loadGymImage(trainerSpriteURL(g.Leader))
+		gymPaste(bg, trainer, image.Rect(x+20, y+18, x+120, y+118))
+
+		ace := gymAce(g)
+		aceImg := loadGymImage(officialArtworkURL(ace.ID))
+		gymPaste(bg, aceImg, image.Rect(x+178, y+10, x+315, y+145))
+
+		gymText(bg, fmt.Sprintf("%d. %s", n+1, strings.TrimPrefix(g.Name, "Ginásio de ")), x+20, y+150, 22, color.White, true)
+		gymText(bg, g.Leader, x+20, y+180, 18, color.RGBA{R: 215, G: 225, B: 240, A: 255}, true)
+		gymText(bg, fmt.Sprintf("%s  %s", typeEmoji(g.Type), g.Type), x+20, y+207, 17, color.RGBA{R: 200, G: 210, B: 225, A: 255}, false)
+		gymText(bg, fmt.Sprintf("Insígnia: %s", strings.TrimSpace(strings.TrimLeft(g.Badge, "🌑💧⚡🌈🧪🧠🔥🌍"))), x+20, y+234, 15, color.RGBA{R: 175, G: 190, B: 210, A: 255}, false)
+		gymText(bg, fmt.Sprintf("Requer Lv. %d", g.UnlockLevel), x+20, y+264, 16, color.White, false)
+		gymText(bg, fmt.Sprintf("Ace: %s · Lv. %d", ace.Name, ace.Level), x+20, y+289, 16, color.White, false)
+		gymText(bg, fmt.Sprintf("Coins: %d", g.RewardCoins), x+20, y+314, 16, color.RGBA{R: 245, G: 205, B: 90, A: 255}, false)
+
+		statusColor := color.RGBA{R: 65, G: 75, B: 95, A: 255}
+		if status == "CONQUISTADO" {
+			statusColor = color.RGBA{R: 40, G: 145, B: 85, A: 255}
+		} else if status == "DESAFIAR" {
+			statusColor = color.RGBA{R: 45, G: 105, B: 190, A: 255}
+		}
+		gymRoundRect(bg, image.Rect(x+20, y+333, x+305, y+355), 10, statusColor)
+		gymText(bg, status, x+32, y+349, 13, color.White, true)
+	}
+
+	var out bytes.Buffer
+	if err := png.Encode(&out, bg); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func respondGymCard(s *discordgo.Session, i *discordgo.InteractionCreate, p Player) {
+	img, err := generateGymsCard(p)
+	if err != nil {
+		log.Printf("generate gyms card: %v", err)
+		respond(s, i, "Não consegui gerar o painel dos ginásios.")
+		return
+	}
+	_, err = s.InteractionResponse(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Files: []*discordgo.File{{Name: "ginasios.png", Content: bytes.NewReader(img), ContentType: "image/png"}},
+			Content: "Use /ginasio numero:N para desafiar um ginásio.",
+		},
+	})
+	if err != nil {
+		log.Printf("respond gyms card: %v", err)
+	}
+}
+
 func handleGyms(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p, ok := getPlayer(iUser(i).ID)
 	if !ok {
 		respond(s, i, "Você ainda não começou. Use /iniciar primeiro.")
 		return
 	}
-
-	fields := make([]*discordgo.MessageEmbedField, 0, len(gyms))
-	for n, g := range gyms {
-		status := "🔒 Bloqueado"
-		if p.Level >= g.UnlockLevel {
-			status = "⚔️ Disponível"
-		}
-		if n > 0 {
-			hasPrev := false
-			for _, b := range p.Badges {
-				if b == gyms[n-1].Badge {
-					hasPrev = true
-					break
-				}
-			}
-			if !hasPrev {
-				status = "🔒 Requer anterior"
-			}
-		}
-		for _, b := range p.Badges {
-			if b == g.Badge {
-				status = "✅ Conquistado"
-				break
-			}
-		}
-
-		ace := gymAce(g)
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: fmt.Sprintf("%d. %s", n+1, g.Name),
-			Value: fmt.Sprintf(
-				"%s **%s**\n%s %s\n🎖️ %s\n🔓 Lv. %d\n⭐ %s · Lv. %d\n💰 %d Coins\n/ginasio numero:%d",
-				status,
-				g.Leader,
-				typeEmoji(g.Type),
-				g.Type,
-				g.Badge,
-				g.UnlockLevel,
-				ace.Name,
-				ace.Level,
-				g.RewardCoins,
-				n+1,
-			),
-			Inline: true,
-		})
-	}
-
-	respondEmbed(s, i, &discordgo.MessageEmbed{
-		Title: "🏟️ Ginásios de Kanto",
-		Description: fmt.Sprintf(
-			"Desafie os líderes, conquiste as **8 insígnias** e torne-se o Campeão!\n\n**Progresso:** %d/8  %s",
-			len(p.Badges),
-			progressBar(len(p.Badges), 8, 8),
-		),
-		Color: 0xF1C40F,
-		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: officialArtworkURL(112)},
-		Fields: fields,
-		Footer: &discordgo.MessageEmbedFooter{Text: "Use /ginasio numero:N • A ordem dos ginásios é obrigatória"},
-	})
+	respondGymCard(s, i, p)
 }
 
 func handleGymBattle(s *discordgo.Session, i *discordgo.InteractionCreate) {
