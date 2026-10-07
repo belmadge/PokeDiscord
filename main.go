@@ -366,6 +366,7 @@ func handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Description: fmt.Sprintf("Bem-vinda, **%s**! Seu parceiro inicial é **%s**.", user.Username, starter),
 		Color: 0xF2A900,
 		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: spriteURL(pk.ID)},
+		Image: &discordgo.MessageEmbedImage{URL: officialArtworkURL(pk.ID)},
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "Próximo passo", Value: "Use `/procurar` para procurar um Pokémon selvagem."},
 			{Name: "💰 Coins", Value: "100"},
@@ -379,8 +380,13 @@ func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, "Você ainda não começou. Use `/iniciar` primeiro.")
 		return
 	}
+	profileDescription := "Treinador Pokémon"
+	if p.Champion { profileDescription += " • 👑 **CAMPEÃO**" }
+	profileImage := officialArtworkURL(25)
+	if len(p.Pokemon) > 0 { profileImage = officialArtworkURL(p.Pokemon[0].ID) }
 	respondEmbed(s, i, &discordgo.MessageEmbed{
-		Title: "👤 " + p.Username, Description: "Treinador Pokémon", Color: 0x5865F2,
+		Title: "👤 " + p.Username, Description: profileDescription, Color: 0x5865F2,
+		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: profileImage},
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "⭐ Level", Value: strconv.Itoa(p.Level), Inline: true},
 			{Name: "✨ XP", Value: strconv.Itoa(p.XP), Inline: true},
@@ -388,8 +394,9 @@ func handleProfile(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			{Name: "📦 Pokémon", Value: strconv.Itoa(len(p.Pokemon)), Inline: true},
 			{Name: "🏆 Coliseu", Value: strconv.Itoa(p.ColiseumWins) + " vitórias", Inline: true},
 			{Name: "🏅 Insígnias", Value: strconv.Itoa(len(p.Badges)) + "/8", Inline: true},
+			{Name: "🏆 Liga", Value: fmt.Sprintf("%d/5", p.LeagueWins), Inline: true},
+			{Name: "👑 Título", Value: func() string { if p.Champion { return "Campeão" }; return "Treinador" }(), Inline: true},
 		},
-
 	})
 }
 
@@ -419,10 +426,13 @@ func handlePokemon(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		lines = append(lines, fmt.Sprintf("**%d. %s**%s — %s — Lv. %d — ❤️ %d/%d — XP %d/%d%s", idx+1, pk.Name, shiny, pk.Type, pk.Level, hp, battleHP(pk), pk.XP, pk.XPToNext, extra))
 	}
+	imageURL := officialArtworkURL(25)
+	if len(p.Pokemon) > 0 { imageURL = officialArtworkURL(p.Pokemon[0].ID) }
 	respondEmbed(s, i, &discordgo.MessageEmbed{
 		Title: "📦 Seus Pokémon",
 		Description: strings.Join(lines, "\n"),
 		Color: 0x57F287,
+		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: imageURL},
 	})
 }
 
