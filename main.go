@@ -117,7 +117,8 @@ func registerCommands(s *discordgo.Session) error {
 		{Name: "catch", Description: "Tente capturar o Pokémon encontrado"},
 		{Name: "flee", Description: "Fuja do encontro atual"},
 	}
-	_, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, "", commands)
+	guildID := os.Getenv("DISCORD_GUILD_ID")
+	_, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, guildID, commands)
 	return err
 }
 
