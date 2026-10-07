@@ -300,7 +300,7 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	pk := randomPokemonForRoute(*route)
+	pk := randomPokemonForRoute(*route, player.Pokemon)
 	store.Encounters[userID] = Encounter{OwnerID: userID, Pokemon: pk, ExpiresAt: time.Now().Add(60 * time.Second)}
 	store.mu.Unlock()
 
@@ -455,13 +455,34 @@ func routeName(id string) string {
 	return "Route 1"
 }
 
-func randomPokemonForRoute(route Route) Pokemon {
-	pokemonID := route.PokemonIDs[rand.Intn(len(route.PokemonIDs))]
+func randomPokemonForRoute(route Route, owned []Pokemon) Pokemon {
+	// Prioriza espécies que o treinador ainda não capturou nesta rota.
+	// Depois que completar a lista da rota, os encontros voltam a ser aleatórios.
+	available := make([]int, 0, len(route.PokemonIDs))
+	for _, id := range route.PokemonIDs {
+		if !hasPokemonID(owned, id) {
+			available = append(available, id)
+		}
+	}
+	if len(available) == 0 {
+		available = route.PokemonIDs
+	}
+
+	pokemonID := available[rand.Intn(len(available))]
 	pk := pokemonByID(pokemonID)
 	pk.Level = route.MinLevel + rand.Intn(route.MaxLevel-route.MinLevel+1)
 	pk.XPToNext = 10 + pk.Level*4
 	pk.Shiny = rand.Intn(100) == 0
 	return pk
+}
+
+func hasPokemonID(pokemon []Pokemon, id int) bool {
+	for _, pk := range pokemon {
+		if pk.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func pokemonByID(id int) Pokemon {
