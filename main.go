@@ -894,7 +894,13 @@ func loadGymImage(url string) image.Image {
 		return cached
 	}
 	client := &http.Client{Timeout: 4 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "PokeDiscord/1.0 (+Discord bot)")
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}
@@ -1033,13 +1039,15 @@ func generateGymsCard(p Player) ([]byte, error) {
 
 		gymRoundRect(bg, image.Rect(x, y, x+cardW, y+cardH), 18, color.RGBA{R: 31, G: 40, B: 58, A: 255})
 		gymRoundRect(bg, image.Rect(x, y, x+7, y+cardH), 4, accent)
+		gymRoundRect(bg, image.Rect(x+14, y+14, x+136, y+140), 14, color.RGBA{R: 23, G: 30, B: 46, A: 255})
+		gymRoundRect(bg, image.Rect(x+145, y+14, x+311, y+140), 14, color.RGBA{R: 23, G: 30, B: 46, A: 255})
 
 		trainer := loadGymImage(trainerSpriteURL(g.Leader))
-		gymPaste(bg, trainer, image.Rect(x+20, y+18, x+120, y+118))
+		gymPaste(bg, trainer, image.Rect(x+28, y+24, x+122, y+132))
 
 		ace := gymAce(g)
 		aceImg := loadGymImage(officialArtworkURL(ace.ID))
-		gymPaste(bg, aceImg, image.Rect(x+178, y+10, x+315, y+145))
+		gymPaste(bg, aceImg, image.Rect(x+158, y+18, x+305, y+136))
 
 		gymText(bg, fmt.Sprintf("%d. %s", n+1, strings.TrimPrefix(g.Name, "Ginásio de ")), x+20, y+150, 22, color.White, true)
 		gymText(bg, g.Leader, x+20, y+180, 18, color.RGBA{R: 215, G: 225, B: 240, A: 255}, true)
