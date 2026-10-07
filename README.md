@@ -97,3 +97,12 @@ Use `/rotas` para escolher a rota atual. Depois use `/procurar` para encontrar P
 ### Coliseu
 
 Use `/coliseu numero:1` para entrar em uma batalha PvE. Ataques alternados reduzem o HP; vitórias concedem Coins e XP ao Pokémon usado.
+
+### Equipe
+
+- `/equipe ver` — mostra sua equipe atual
+- `/equipe adicionar numero:N` — adiciona um Pokémon
+- `/equipe remover numero:N` — remove um Pokémon
+- `/equipe limpar` — limpa a equipe
+
+A equipe pode ter até 6 Pokémon. O Coliseu aceita apenas Pokémon que estejam na equipe.
