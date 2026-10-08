@@ -1694,12 +1694,13 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		typeText = "✨ Shiny • " + typeText
 	}
 
+	// Duas colunas por linha funcionam melhor no celular do Discord do que
+	// três campos inline, que ficam estreitos e quebram os valores.
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
 		Description: description,
 		Color:       color,
 		Image:       &discordgo.MessageEmbedImage{URL: officialArtworkURL(pk.ID)},
-		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: spriteURL(pk.ID)},
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "⭐ Level", Value: fmt.Sprintf("**%d**", pk.Level), Inline: true},
 			{Name: "✨ Raridade", Value: fmt.Sprintf("**%s**", rare), Inline: true},
