@@ -1389,37 +1389,64 @@ func handleHunt(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !special {
 		pk = randomPokemonForRoute(*route, player.Pokemon)
 	}
+
 	lureText := "Nenhuma"
 	if !player.ActiveLureUntil.IsZero() && time.Now().Before(player.ActiveLureUntil) {
 		lureText = fmt.Sprintf("%s (%d min restantes)", player.ActiveLureName, int(time.Until(player.ActiveLureUntil).Minutes())+1)
 	}
-	store.Encounters[userID] = Encounter{OwnerID: userID, Pokemon: pk, ExpiresAt: time.Now().Add(60 * time.Second)}
+
+	expiresAt := time.Now().Add(60 * time.Second)
+	store.Encounters[userID] = Encounter{
+		OwnerID:   userID,
+		Pokemon:   pk,
+		ExpiresAt: expiresAt,
+	}
 	store.mu.Unlock()
 
-	title := "🌿 Pokémon selvagem apareceu!"
-	description := fmt.Sprintf("Um **%s** selvagem apareceu na **%s**!", pk.Name, route.Name)
-	color := 0xFEE75C
+	title := "🌿 UM POKÉMON SELVAGEM APARECEU!"
+	description := fmt.Sprintf("**%s** apareceu na **%s**!", pk.Name, route.Name)
+	color := typeColor(pk.Type)
 	if special {
 		title = "🌟 ENCONTRO LENDÁRIO!"
-		description = fmt.Sprintf("Uma energia lendária tomou conta da **%s**! **%s** apareceu!", route.Name, pk.Name)
+		description = fmt.Sprintf("Uma energia lendária tomou conta da **%s**... **%s** apareceu!", route.Name, pk.Name)
 		color = 0x9B59B6
 	}
-	respondEmbedWithComponents(s, i, &discordgo.MessageEmbed{
-		Title: title,
+
+	rare := rarity(pk)
+	typeText := fmt.Sprintf("%s %s", typeEmoji(pk.Type), pk.Type)
+	if pk.Shiny {
+		typeText = "✨ Shiny • " + typeText
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       title,
 		Description: description,
-		Color: color,
-		Thumbnail: &discordgo.MessageEmbedThumbnail{URL: spriteURL(pk.ID)},
+		Color:       color,
+		Image:       &discordgo.MessageEmbedImage{URL: officialArtworkURL(pk.ID)},
+		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: spriteURL(pk.ID)},
 		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Level", Value: strconv.Itoa(pk.Level), Inline: true},
-			{Name: "Raridade", Value: rarity(pk), Inline: true},
+			{Name: "⭐ Level", Value: fmt.Sprintf("**%d**", pk.Level), Inline: true},
+			{Name: "✨ Raridade", Value: fmt.Sprintf("**%s**", rare), Inline: true},
 			{Name: "🗺️ Rota", Value: route.Name, Inline: true},
+			{Name: "🔹 Tipo", Value: typeText, Inline: true},
 			{Name: "⏱️ Encontro", Value: "60 segundos", Inline: true},
 			{Name: "🎣 Isca", Value: lureText, Inline: true},
 		},
-	}, []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.Button{CustomID: "capturar:" + userID, Label: "🎯 Capturar", Style: discordgo.PrimaryButton},
-		discordgo.Button{CustomID: "fugir:" + userID, Label: "🏃 Fugir", Style: discordgo.SecondaryButton},
-	}}})
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "O Pokémon pode fugir quando o tempo acabar.",
+		},
+	}
+
+	if special {
+		embed.Footer.Text = "🌟 Um encontro extremamente raro! O Pokémon pode fugir quando o tempo acabar."
+	}
+
+	respondEmbedWithComponents(s, i, embed, []discordgo.MessageComponent{
+		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			discordgo.Button{CustomID: "capturar:" + userID, Label: "🎯 Capturar", Style: discordgo.SuccessButton},
+			discordgo.Button{CustomID: "fugir:" + userID, Label: "🏃 Fugir", Style: discordgo.SecondaryButton},
+		}},
+	})
 }
 func handleLegendaries(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	p, ok := getPlayer(iUser(i).ID)
